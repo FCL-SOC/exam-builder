@@ -75,3 +75,7 @@ python3 -m unittest discover tests
 - `server.py`: web server, exam storage, backups and school settings (standard library only)
 - `static/index.html`: the whole app (editor, cover sheet, graphs, print layout)
 - `static/mathlive/` and `static/Sortable.min.js`: bundled copies of [MathLive](https://github.com/arnog/mathlive) (MIT) and [SortableJS](https://github.com/SortableJS/Sortable) (MIT), so it works offline
+
+## Licence
+
+[MIT](LICENSE). Free to use, change and share, including in your school's own version.
