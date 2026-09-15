@@ -11,6 +11,8 @@ Everything is edited directly on the page:
 - **A4 pages on screen** that match the printed copy, "New page" breaks, drag and drop, and undo
 - **Teacher libraries** by three-letter staff code, grouped by learning area, subject and year level, with a shared faculty shelf
 
+**[Try the live demo](https://fcl-soc.github.io/exam-builder/)**: it runs entirely in your browser and saves nothing, so print or save your exam as a PDF before closing the tab.
+
 It runs as a small web server on one computer at school; staff open it in Chrome or Edge.
 It needs **no internet connection and no packages**: just Python's standard library.
 
@@ -74,6 +76,8 @@ python3 -m unittest discover tests
 
 - `server.py`: web server, exam storage, backups and school settings (standard library only)
 - `static/index.html`: the whole app (editor, cover sheet, graphs, print layout)
+- `static/demo.js`: the live demo. With no server behind the page (GitHub Pages, a local file, or `?demo`) it answers the app's requests from memory; on the real server it does nothing
+- `.github/workflows/pages.yml`: publishes `static/` as the live demo on every push
 - `static/mathlive/` and `static/Sortable.min.js`: bundled copies of [MathLive](https://github.com/arnog/mathlive) (MIT) and [SortableJS](https://github.com/SortableJS/Sortable) (MIT), so it works offline
 
 ## Licence

@@ -4,10 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Exam Assistant</title>
-<link rel="stylesheet" href="/mathlive/mathlive-fonts.css">
-<link rel="stylesheet" href="/mathlive/mathlive-static.css">
-<script src="/mathlive/mathlive.min.js"></script>
-<script src="/Sortable.min.js"></script>
+<link rel="stylesheet" href="mathlive/mathlive-fonts.css">
+<link rel="stylesheet" href="mathlive/mathlive-static.css">
+<script src="mathlive/mathlive.min.js"></script>
+<script src="Sortable.min.js"></script>
+<script src="demo.js"></script>
 <style>
   :root {
     --red: #8B0000; --green: #1F5C2E; --gold: #B8860B; --light: #F5F0EB;  /* --red and --gold come from School settings */
@@ -34,6 +35,9 @@
   #topbar h1 { font-size: 17px; margin: 0; flex: 1; }
   #code { width: 60px; text-transform: uppercase; text-align: center; font-weight: 700; }
   #status { font-size: 12px; min-width: 140px; text-align: right; }
+  #demo-bar { background: #FFF3C4; color: #5a4a00; padding: 6px 16px; font-size: 13px; border-bottom: 1px solid #e8d48a; }
+  #demo-bar a { color: inherit; font-weight: 600; }
+  @media print { #demo-bar { display: none !important; } }
   #status.error { background: #fff; color: var(--red); padding: 2px 8px; border-radius: 4px; font-weight: 700; }
 
   /* ---------- home ---------- */
@@ -275,6 +279,10 @@
     <button id="school-btn" title="School name, logo, cover wording, fonts and colours">School settings</button>
     <span id="status"></span>
   </header>
+
+  <div id="demo-bar" hidden><b>Live demo:</b> nothing is saved, so your exam disappears when you close or reload this tab.
+    Use <b>Print / Save as PDF</b> to keep it. Type any three letters as your staff code.
+    To use it at your school, <a href="https://github.com/FCL-SOC/exam-builder" target="_blank" rel="noopener">download it from GitHub</a>.</div>
 
   <main id="home">
     <div class="home-inner">
@@ -544,7 +552,7 @@ let homeRequest = 0;  // a slow list response must not overwrite a newer one (e.
 async function renderHome() {
   const request = ++homeRequest;
   show("home");
-  history.replaceState(null, "", location.pathname);
+  history.replaceState(null, "", location.pathname + location.search);  // keep ?demo
   $("#tab-mine").classList.toggle("on", tab === "mine");
   $("#tab-shelf").classList.toggle("on", tab === "shelf");
   $("#shelf-area").hidden = tab !== "shelf";
@@ -646,7 +654,7 @@ async function deleteExam(r) {
 // ---------------------------------------------------------------- editor
 function openEditor() {
   show("editor");
-  history.replaceState(null, "", `#exam=${uid}`);
+  history.replaceState(null, "", `${location.pathname}${location.search}#exam=${uid}`);
   $("#settings-btn").hidden = $("#hint").hidden = $("#undo-btn").hidden = $("#palette").hidden = readOnly;
   document.body.classList.toggle("palette", !readOnly);
   resetUndo();
@@ -776,7 +784,7 @@ function renderPaper() {
     ${ed ? `<div class="hint">Highlighted text can be clicked and edited</div>` : ""}
     <table class="namebox"><tr><th>Name</th><td></td></tr><tr><th>Teacher</th><td>${ex.show_teacher ? esc(examOwner) : ""}</td></tr></table>
     <div class="centre">
-      ${settings.has_logo ? `<img class="logo" src="/school-logo?v=${logoVersion}" alt="">` : ed ? `<div class="logo-hint">Add your school's logo in School settings</div>` : ""}
+      ${settings.has_logo ? `<img class="logo" src="${esc(logoUrl())}" alt="">` : ed ? `<div class="logo-hint">Add your school's logo in School settings</div>` : ""}
       <div class="school">${esc(settings.school_name)}</div>
       <div class="big"><span class="unitwrap">${editable("span", "unit", ex, "unit", "plain", "Unit or topic")} </span>${editable("span", "subj", ex, "subject", "plain", "Subject")}</div>
       <div class="big">${editable("span", "", ex, "task", "plain", "Task")}</div>
@@ -1317,7 +1325,8 @@ const JSON_HEADERS = { "Content-Type": "application/json" };
 let settings = { school_name: "Your School", default_task: "Written Examination", instructions: DEFAULT_INSTRUCTIONS, notice: PHONES,
   body_font: FONTS[0][0], body_size: 11, school_name_size: 33, title_size: 25, line_spacing: 9,
   theme_colour: "#8B0000", accent_colour: "#B8860B", pin_set: false, has_logo: false };
-let adminPin = "", logoVersion = Date.now();
+let adminPin = window.EXAM_DEMO ? "demo" : "", logoVersion = Date.now();  // the demo has no PIN
+const logoUrl = () => window.demoLogoUrl || `/school-logo?v=${logoVersion}`;
 
 function applySettings() {
   const root = document.documentElement.style;
@@ -1330,7 +1339,7 @@ function applySettings() {
   root.setProperty("--line-gap", `${settings.line_spacing}mm`);
   const top = $("#top-logo");
   top.hidden = !settings.has_logo;
-  if (settings.has_logo) top.src = `/school-logo?v=${logoVersion}`;
+  if (settings.has_logo) top.src = logoUrl();
   document.title = settings.school_name && settings.school_name !== "Your School" ? `Exam Assistant · ${settings.school_name}` : "Exam Assistant";
 }
 async function loadSettings() {
@@ -1383,7 +1392,7 @@ function fillSchoolForm() {
 // Logo changes save straight away; they must not reset the rest of the form, which may hold unsaved edits.
 function fillLogoPreview() {
   $("#st-logo-preview").hidden = $("#st-logo-remove").hidden = !settings.has_logo;
-  if (settings.has_logo) $("#st-logo-preview").src = `/school-logo?v=${logoVersion}`;
+  if (settings.has_logo) $("#st-logo-preview").src = logoUrl();
   $("#st-logo").value = "";
 }
 async function adminCall(path, opts) {
@@ -1445,6 +1454,8 @@ $("#school-save").onclick = saveSchool;
 $("#st-logo").onchange = e => { if (e.target.files[0]) uploadLogo(e.target.files[0]); };
 $("#st-logo-remove").onclick = removeLogo;
 $("#st-change-pin").onclick = changePin;
+$("#st-change-pin").hidden = !!window.EXAM_DEMO;
+$("#demo-bar").hidden = !window.EXAM_DEMO;
 
 // ---------------------------------------------------------------- wiring
 $("#shelf-area").append(h("option", { value: "" }, "All learning areas"), ...LEARNING_AREAS.map(a => h("option", { value: a }, a)));
@@ -1497,6 +1508,9 @@ $("#s-reset").onclick = () => { exam.instructions = settings.instructions; chang
 
 // Shrink the A4 preview to fit narrow screens (printing is always full size).
 function fitPaper() {
+  // The palette and graph panel start just below the toolbar, wherever it is (the demo banner pushes it down).
+  const below = Math.round($("#toolbar").getBoundingClientRect().bottom) + 10;
+  $("#palette").style.top = $("#graph-panel").style.top = `${below}px`;
   const wrap = $("#paper-wrap"), pad = getComputedStyle(wrap);
   const room = wrap.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight);
   $("#paper").style.zoom = Math.min(1, room / (210 * 96 / 25.4)).toFixed(3);
