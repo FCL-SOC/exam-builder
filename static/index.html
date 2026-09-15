@@ -67,9 +67,14 @@
   .settings .btns { display: flex; gap: 8px; margin-top: 14px; }
 
   /* ---------- the exam paper (screen preview AND print) ---------- */
-  .sheet { width: 210mm; margin: 0 auto 20px; background: #fff; box-shadow: var(--shadow); padding: 15mm; color: #000;
+  .sheet { position: relative; width: 210mm; margin: 0 auto 20px; background: #fff; box-shadow: var(--shadow); padding: 15mm; color: #000;
            font: var(--body-size) var(--body-font); line-height: 1.35; }
   .cover { min-height: 297mm; padding: 12.5mm 25.4mm 5mm; }
+  /* The strip stands in the right margin, so the text column gives up the same width on screen and in print. */
+  .sheet:has(.dnw) { padding-right: 29mm; }
+  .dnw { position: absolute; top: 0; right: 3mm; width: 9mm; height: 100%; background: #404040; color: #fff;
+         writing-mode: vertical-rl; font: 8pt Arial, sans-serif; text-align: center; padding: 10mm 0;
+         print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   /* Separate, not collapsed, borders: Chrome's print preview on Windows drops collapsed hairline cell borders */
   .namebox { border-collapse: separate; border-spacing: 0; }
   .namebox tr + tr td { border-top: 0; }
@@ -122,6 +127,7 @@
   .tbl { border-collapse: separate; border-spacing: 0; margin: 2mm 0; border-top: 1px solid #000; border-left: 1px solid #000; }
   .tbl td { border-right: 1px solid #000; border-bottom: 1px solid #000; padding: 1.5mm 2.5mm; min-width: 16mm; height: 8mm; vertical-align: middle; }
   .tbl tr.head td { font-weight: 700; border-bottom-width: 1.5px; }
+  .tbl td.sh { background: #e2e2e2; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .graph { margin: 2mm auto; }
   .graph svg { display: block; width: 100%; height: auto; overflow: visible; font-family: Arial, Helvetica, sans-serif; }
   .g-grid line { stroke: #9a9a9a; stroke-width: .22; }
@@ -266,6 +272,10 @@
     #graph-panel, #palette { display: none !important; }
     .pgap.brk { display: block; height: 0 !important; break-before: page; }
     .pgap .band { display: none; }  /* the grey gap between pages is screen-only */
+    /* Chrome repeats a fixed element on every printed page, which is exactly what this strip wants. */
+    .sheet:has(.dnw) { padding-right: 14mm; }  /* 14mm + the 15mm page margin = the 29mm kept on screen */
+    .dnw { position: fixed; right: -21mm; }  /* measured: Chrome resolves this against a box ~21mm inside the page content edge */
+    .extra .dnw { display: none; }  /* one is enough: the fixed one already paints on every page */
   }
 </style>
 </head>
@@ -336,6 +346,7 @@
     </label>
     <label class="chk"><input type="checkbox" id="s-teacher"> Print my staff code in the Teacher box</label>
     <label class="chk"><input type="checkbox" id="s-shared"> Share with faculty (read-only on the Faculty shelf)</label>
+    <label class="chk"><input type="checkbox" id="s-nowrite"> Print a "Do not write in this area" strip down the outer margin</label>
     <p class="note">Everything else on the cover is edited by clicking it. In the instructions box, a line starting
       with <b>##</b> is a heading and <b>{calculator}</b> inserts the calculator rule above.</p>
     <div class="btns">
@@ -472,7 +483,7 @@ const newSection = name => ({ name, description: "", to_answer: null, instructio
 const defaults = () => ({
   learning_area: "", subject: "", unit: "", task: settings.default_task, semester: "1",
   year: String(new Date().getFullYear()), reading_min: 10, writing_min: 60, calculator: "none",
-  instructions: settings.instructions, show_teacher: false, shared: false, sections: [newSection("A")],
+  instructions: settings.instructions, show_teacher: false, shared: false, no_write: true, sections: [newSection("A")],
   assessment_type: "Exam", year_level: "",
 });
 const examTitle = ex => [ex.unit, ex.subject, "·", ex.task, `S${ex.semester} ${ex.year}`]
@@ -813,14 +824,16 @@ function renderPaper() {
       ${ed ? `<button class="add" data-act="add-question">+ Question</button>` : ""}
     </div>`).join("");
 
-  const extra = `<section class="sheet extra">
+  const dnw = ex.no_write === false ? "" : `<div class="dnw">Do not write in this area.</div>`;
+
+  const extra = `<section class="sheet extra">${dnw}
     <div class="sec-head">Extra space for responses</div>
     <p class="sec-note">Clearly number all responses in this space.</p>
     <div class="lines"><div class="ln">${"<div></div>".repeat(24)}</div></div>
     <p class="end">END OF QUESTION AND ANSWER BOOK</p>
   </section>`;
 
-  const body = `<section class="sheet body"><div class="seclist"${list(ex.sections, "sections", ".h-sec")}>${sections}</div>
+  const body = `<section class="sheet body">${dnw}<div class="seclist"${list(ex.sections, "sections", ".h-sec")}>${sections}</div>
     ${ed ? `<button class="add" data-act="add-section">+ Section</button>` : ""}</section>`;
 
   const paper = $("#paper");
@@ -878,9 +891,10 @@ function blockInner(b, grips = true) {
       break;
     }
     case "table": {
-      const rows = b.rows || [];
+      const rows = b.rows || [], sr = b.shade_rows || [], sc = b.shade_cols || [];
       inner = `<table class="tbl"><tbody>${rows.map((row, ri) =>
-        `<tr${ri === 0 && b.header ? ` class="head"` : ""}>${row.map((c, ci) => editable("td", "cell", row, ci, "option", "")).join("")}</tr>`).join("")}</tbody></table>`;
+        `<tr${ri === 0 && b.header ? ` class="head"` : ""}>${row.map((c, ci) =>
+          editable("td", `cell${sr.includes(ri) || sc.includes(ci) ? " sh" : ""}`, row, ci, "option", "")).join("")}</tr>`).join("")}</tbody></table>`;
       break;
     }
     case "answer":  // "total cost = [      ]" or "[        m s⁻¹]"; several boxes sit side by side
@@ -910,7 +924,8 @@ function blockHtml(b, arr) {
     `${b.type === "image" ? `<button data-act="replace-image">Replace</button>` : ""}` +
     `${b.type === "choices" ? `<button data-act="options-graphs" title="Make every text option a graph (laid out 2 × 2)">All graphs</button><button data-act="add-option" title="Add an option">+ Option</button><button data-act="remove-option" title="Remove the last option">− Option</button>` : ""}` +
     `${b.type === "graph" ? `<button data-act="edit-graph">Edit graph</button>` : ""}` +
-    `${b.type === "table" ? `<button data-act="add-row">+ Row</button><button data-act="remove-row">− Row</button><button data-act="add-col">+ Col</button><button data-act="remove-col">− Col</button><button data-act="toggle-header" title="Bold first row">${b.header ? "✓ " : ""}Header</button>` : ""}` +
+    `${b.type === "table" ? `<button data-act="add-row">+ Row</button><button data-act="remove-row">− Row</button><button data-act="add-col">+ Col</button><button data-act="remove-col">− Col</button><button data-act="toggle-header" title="Bold first row">${b.header ? "✓ " : ""}Header</button>` +
+      `<button data-act="shade-row" title="Shade the row of the cell you last clicked">Shade row</button><button data-act="shade-col" title="Shade the column of the cell you last clicked">Shade column</button>` : ""}` +
     `${b.type === "answer" ? `<button data-act="add-abox" title="Another box beside this one">+ Box</button><button data-act="remove-abox">− Box</button>` : ""}` +
     `<button data-act="del" title="Remove">✕</button></span>` : "";
   return `<div class="blk"${node(b, arr, "block")}>${ctl}${inner}</div>`;
@@ -1249,6 +1264,7 @@ function focusBlock(b) {
 }
 
 let lastAdd = {};
+const flip = (a, i) => (a || []).includes(i) ? a.filter(x => x !== i) : [...(a || []), i];
 function act(name, target, btn) {
   const it = target?.obj;
   // A double-click must not add the same thing twice (options excepted: those get clicked repeatedly on purpose).
@@ -1291,10 +1307,18 @@ function act(name, target, btn) {
     case "add-table": return focusBlock(addBlock({ type: "table", header: true, rows: [["", "", ""], ["", "", ""], ["", "", ""]] }));
     case "add-answer": return focusBlock(addBlock({ type: "answer", boxes: [{ label: "", units: "" }] }));
     case "add-row": it.rows.push(it.rows[0] ? it.rows[0].map(() => "") : [""]); return changed();
-    case "remove-row": if (it.rows.length > 1) it.rows.pop(); return changed();
+    case "remove-row":
+      if (it.rows.length > 1) it.rows.pop();
+      it.shade_rows = (it.shade_rows || []).filter(i => i < it.rows.length);
+      return changed();
     case "add-col": if (it.rows[0].length < 12) it.rows.forEach(r => r.push("")); return changed();
-    case "remove-col": if (it.rows[0].length > 1) it.rows.forEach(r => r.pop()); return changed();
+    case "remove-col":
+      if (it.rows[0].length > 1) it.rows.forEach(r => r.pop());
+      it.shade_cols = (it.shade_cols || []).filter(i => i < it.rows[0].length);
+      return changed();
     case "toggle-header": it.header = !it.header; return changed();
+    case "shade-row": it.shade_rows = flip(it.shade_rows, clamp(tblCell.r, 0, it.rows.length - 1)); return changed();
+    case "shade-col": it.shade_cols = flip(it.shade_cols, clamp(tblCell.c, 0, it.rows[0].length - 1)); return changed();
     case "add-abox": if (it.boxes.length < 4) it.boxes.push({ label: "", units: "" }); return changed();
     case "remove-abox": if (it.boxes.length > 1) it.boxes.pop(); return changed();
     case "correct": { const i = Number(btn.dataset.i); it.correct = it.correct === i ? null : i; return changed(); }
@@ -1498,10 +1522,11 @@ $("#settings-btn").onclick = () => {
   $("#s-calc").value = exam.calculator || "none";
   $("#s-teacher").checked = !!exam.show_teacher;
   $("#s-shared").checked = !!exam.shared;
+  $("#s-nowrite").checked = exam.no_write !== false;
   $("#settings").showModal();
 };
 for (const [id, key, prop] of [["#s-area", "learning_area", "value"], ["#s-year", "year_level", "value"], ["#s-type", "assessment_type", "value"], ["#s-topic", "unit", "value"], ["#s-subject", "subject", "value"], ["#s-calc", "calculator", "value"],
-  ["#s-teacher", "show_teacher", "checked"], ["#s-shared", "shared", "checked"]]) {
+  ["#s-teacher", "show_teacher", "checked"], ["#s-shared", "shared", "checked"], ["#s-nowrite", "no_write", "checked"]]) {
   $(id).addEventListener(prop === "checked" ? "change" : "input", () => { exam[key] = $(id)[prop]; changed(); });
 }
 $("#s-reset").onclick = () => { exam.instructions = settings.instructions; changed(); };
@@ -1569,6 +1594,12 @@ document.fonts?.ready.then(paginate);
 // Editing on the paper itself.
 const paper = $("#paper");
 const refOf = el => el && el.dataset.ref !== undefined ? paperRefs[el.dataset.ref] : null;
+// Which table cell was last clicked, so "Shade row"/"Shade column" know which row and column are meant.
+let tblCell = { r: 0, c: 0 };
+paper.addEventListener("focusin", e => {
+  const td = e.target.closest?.("td.cell");
+  if (td) tblCell = { r: td.parentNode.rowIndex, c: td.cellIndex };
+});
 
 paper.addEventListener("focusin", e => {
   const el = e.target.closest("[data-ref]"), r = refOf(el);
