@@ -70,11 +70,17 @@
   .sheet { position: relative; width: 210mm; margin: 0 auto 20px; background: #fff; box-shadow: var(--shadow); padding: 15mm; color: #000;
            font: var(--body-size) var(--body-font); line-height: 1.35; }
   .cover { min-height: 297mm; padding: 12.5mm 25.4mm 5mm; }
-  /* The strip stands in the right margin, so the text column gives up the same width on screen and in print. */
-  .sheet:has(.dnw) { padding-right: 29mm; }
-  .dnw { position: absolute; top: 0; right: 3mm; width: 9mm; height: 100%; background: #404040; color: #fff;
-         writing-mode: vertical-rl; font: 8pt Arial, sans-serif; text-align: center; padding: 10mm 0;
+  /* "Do not write in this area" — the screen preview only; print draws it from the @page margin boxes below,
+     because Chrome never paints an absolutely positioned box that is anchored in a flow split across pages.
+     paginate() puts one at the top of each page and alternates the side, so a double-sided print keeps it
+     against the spine. It stands in the page margin, so the text column keeps its full width. */
+  .dnwa { position: relative; height: 0; }
+  .dnw { position: absolute; top: 0; height: 266mm; width: 15mm; background: #404040; color: #fff;
+         writing-mode: vertical-rl; font: 8pt Arial, sans-serif;
+         display: flex; align-items: center; justify-content: center;
          print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .dnw.r { right: -15mm; }
+  .dnw.l { left: -15mm; transform: rotate(180deg); }  /* reads up the left edge, as VCAA papers do */
   /* Separate, not collapsed, borders: Chrome's print preview on Windows drops collapsed hairline cell borders */
   .namebox { border-collapse: separate; border-spacing: 0; }
   .namebox tr + tr td { border-top: 0; }
@@ -272,11 +278,18 @@
     #graph-panel, #palette { display: none !important; }
     .pgap.brk { display: block; height: 0 !important; break-before: page; }
     .pgap .band { display: none; }  /* the grey gap between pages is screen-only */
-    /* Chrome repeats a fixed element on every printed page, which is exactly what this strip wants. */
-    .sheet:has(.dnw) { padding-right: 14mm; }  /* 14mm + the 15mm page margin = the 29mm kept on screen */
-    .dnw { position: fixed; right: -21mm; }  /* measured: Chrome resolves this against a box ~21mm inside the page content edge */
-    .extra .dnw { display: none; }  /* one is enough: the fixed one already paints on every page */
+    .dnwa { display: none !important; }  /* print uses the @page margin boxes instead */
   }
+</style>
+<!-- The printed "do not write in this area" strip. A page margin box is the only thing Chrome repeats per page
+     AND lets us alternate: a left-hand page carries it on its right edge and vice versa, so it always falls by
+     the spine. paginate() switches the whole sheet off by setting media="not all" when the exam turns it off. -->
+<style id="nowrite" media="print">
+  @page :left  { @right-middle { content: "Do not write in this area."; background: #404040; color: #fff;
+                   writing-mode: vertical-rl; font: 8pt Arial, sans-serif; padding: 10mm 1mm; } }
+  @page :right { @left-middle  { content: "Do not write in this area."; background: #404040; color: #fff;
+                   writing-mode: vertical-rl; font: 8pt Arial, sans-serif; padding: 10mm 1mm; transform: rotate(180deg); } }
+  @page :first { @right-middle { content: none; } @left-middle { content: none; } }  /* never on the cover */
 </style>
 </head>
 <body>
@@ -824,16 +837,14 @@ function renderPaper() {
       ${ed ? `<button class="add" data-act="add-question">+ Question</button>` : ""}
     </div>`).join("");
 
-  const dnw = ex.no_write === false ? "" : `<div class="dnw">Do not write in this area.</div>`;
-
-  const extra = `<section class="sheet extra">${dnw}
+  const extra = `<section class="sheet extra">
     <div class="sec-head">Extra space for responses</div>
     <p class="sec-note">Clearly number all responses in this space.</p>
     <div class="lines"><div class="ln">${"<div></div>".repeat(24)}</div></div>
     <p class="end">END OF QUESTION AND ANSWER BOOK</p>
   </section>`;
 
-  const body = `<section class="sheet body">${dnw}<div class="seclist"${list(ex.sections, "sections", ".h-sec")}>${sections}</div>
+  const body = `<section class="sheet body"><div class="seclist"${list(ex.sections, "sections", ".h-sec")}>${sections}</div>
     ${ed ? `<button class="add" data-act="add-section">+ Section</button>` : ""}</section>`;
 
   const paper = $("#paper");
@@ -1553,7 +1564,7 @@ let paginateTimer = null;
 function schedulePaginate() { clearTimeout(paginateTimer); paginateTimer = setTimeout(paginate, 250); }
 function paginate() {
   const paperEl = $("#paper");
-  paperEl.querySelectorAll(".pgap").forEach(g => g.remove());
+  paperEl.querySelectorAll(".pgap, .dnwa").forEach(g => g.remove());
   const body = paperEl.querySelector(".sheet.body");
   if (!body || !body.getClientRects().length) return;  // editor not showing
   const zoom = parseFloat(paperEl.style.zoom) || 1;
@@ -1588,6 +1599,18 @@ function paginate() {
   const filler = h("div", { class: "pgap" });  // fill out the last page so it looks like a whole sheet
   filler.style.height = px(Math.max(0, pageStart + pageH - endY));
   body.append(filler);
+
+  // One "do not write in this area" strip per page. The cover is page 1, so the body starts at page 2:
+  // even pages carry it on the right, odd pages on the left, which puts it by the spine either way.
+  // These are the on-screen preview; printing draws its own from the @page margin boxes.
+  const on = exam?.no_write !== false;
+  $("#nowrite").media = on ? "print" : "not all";
+  if (!on) return;
+  const strip = page => h("div", { class: "dnwa" },
+    h("div", { class: `dnw ${page % 2 ? "l" : "r"}` }, "Do not write in this area."));
+  const starts = [body, ...breaks.map(b => b.el)];  // the first page, then whatever element opens each later one
+  starts.forEach((el, i) => el.prepend(strip(i + 2)));
+  paperEl.querySelector(".sheet.extra")?.prepend(strip(starts.length + 2));
 }
 document.fonts?.ready.then(paginate);
 
