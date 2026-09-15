@@ -1,0 +1,1792 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exam Assistant</title>
+<link rel="stylesheet" href="/mathlive/mathlive-fonts.css">
+<link rel="stylesheet" href="/mathlive/mathlive-static.css">
+<script src="/mathlive/mathlive.min.js"></script>
+<script src="/Sortable.min.js"></script>
+<style>
+  :root {
+    --red: #8B0000; --green: #1F5C2E; --gold: #B8860B; --light: #F5F0EB;  /* --red and --gold come from School settings */
+    --body-font: Calibri, Carlito, Arial, sans-serif; --body-size: 11pt; --school-size: 33pt; --title-size: 25pt; --line-gap: 9mm;
+    --border: #D0C8BC; --radius: 6px; --shadow: 0 2px 8px rgba(0,0,0,.10);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font: 14px 'Segoe UI', Arial, sans-serif; background: #EFEFEF; color: #222; }
+  [hidden] { display: none !important; }
+  button { font: inherit; border: 1px solid var(--border); background: #fff; border-radius: var(--radius); padding: 4px 10px; cursor: pointer; }
+  button:hover { border-color: var(--red); }
+  button.primary { background: var(--red); color: #fff; border-color: var(--red); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.danger { color: var(--red); }
+  input, select, textarea { font: inherit; border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; background: #fff; }
+  .grow { flex: 1; }
+  .note { color: #666; font-size: 13px; }
+  .bad { color: var(--red); font-weight: 600; }
+
+  #app { display: flex; flex-direction: column; height: 100vh; }
+  #topbar { background: var(--red); color: #fff; display: flex; align-items: center; gap: 10px; padding: 6px 16px; }
+  #topbar img { height: 34px; background: #fff; border-radius: 4px; padding: 2px; }
+  #topbar h1 { font-size: 17px; margin: 0; flex: 1; }
+  #code { width: 60px; text-transform: uppercase; text-align: center; font-weight: 700; }
+  #status { font-size: 12px; min-width: 140px; text-align: right; }
+  #status.error { background: #fff; color: var(--red); padding: 2px 8px; border-radius: 4px; font-weight: 700; }
+
+  /* ---------- home ---------- */
+  #home { flex: 1; overflow: auto; padding: 24px; }
+  .home-inner { max-width: 900px; margin: 0 auto; }
+  .tabs { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .tabs button.on { background: var(--red); color: #fff; border-color: var(--red); }
+  .area h2 { color: var(--red); font-size: 18px; border-bottom: 2px solid var(--gold); padding-bottom: 4px; margin: 20px 0 8px; }
+  .area h3 { font-size: 13px; color: #555; margin: 10px 0 6px; text-transform: uppercase; letter-spacing: .04em; }
+  .row { display: flex; gap: 8px; align-items: center; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 6px; }
+  .row .t { flex: 1; font-weight: 600; }
+  .row .details { font-weight: 400; font-size: 12px; color: #666; margin-top: 2px; }
+  .row .m { color: #777; font-size: 12px; }
+
+  /* ---------- editor ---------- */
+  #editor-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #toolbar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; background: #EEE9E2; border-bottom: 1px solid var(--border); }
+  #totals { font-weight: 600; }
+  #paper-wrap { flex: 1; overflow: auto; padding: 20px; }
+  math-field { display: block; width: 100%; border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; font-size: 18px; }
+  dialog#settings { border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 22px 28px; width: min(620px, 94vw); font-size: 15px; }
+  .settings h3 { margin: 0 0 14px; color: var(--red); font-size: 20px; }
+  .settings > label { display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 10px; margin: 12px 0; font-size: 15px; }
+  .settings input, .settings select, .settings button { font-size: 15px; padding: 6px 10px; }
+  .settings .note { font-size: 14px; }
+  .settings > label.chk { display: block; }
+  .settings .btns { display: flex; gap: 8px; margin-top: 14px; }
+
+  /* ---------- the exam paper (screen preview AND print) ---------- */
+  .sheet { width: 210mm; margin: 0 auto 20px; background: #fff; box-shadow: var(--shadow); padding: 15mm; color: #000;
+           font: var(--body-size) var(--body-font); line-height: 1.35; }
+  .cover { min-height: 297mm; padding: 12.5mm 25.4mm 5mm; }
+  /* Separate, not collapsed, borders: Chrome's print preview on Windows drops collapsed hairline cell borders */
+  .namebox { border-collapse: separate; border-spacing: 0; }
+  .namebox tr + tr td { border-top: 0; }
+  .namebox th { font-size: 18pt; text-align: left; width: 30mm; padding: 1.5mm 0; }
+  .namebox td { border: 1px solid #000; width: 112mm; height: 11mm; font-size: 14pt; padding: 0 3mm; }
+  .cover .centre { text-align: center; margin-top: 6mm; }
+  .cover .logo { height: 24mm; display: block; margin: 0 auto 1mm; }
+  .logo-hint { display: none; }
+  .cover .school { font-size: var(--school-size); font-weight: 700; line-height: 1.15; }
+  .cover .big { font-size: var(--title-size); font-weight: 700; line-height: 1.2; }
+  .cover .time { font-weight: 700; margin: 1mm 0; }
+  .cover .time:first-of-type { margin-top: 5mm; }
+  .cover .qab { font: 700 14pt Arial, sans-serif; text-transform: uppercase; text-align: center; margin-top: 5mm; }
+  .cover .sob { font: 700 11pt Arial, sans-serif; text-align: center; margin: 1mm 0 3mm; }
+  table.structure { width: 100%; border-collapse: collapse; border: 1px solid #000; font: 10pt Arial, sans-serif; }
+  table.structure th { font-weight: 400; font-style: italic; border-bottom: 1px solid #000; padding: 1.5mm; vertical-align: bottom; }
+  table.structure td { padding: 1mm 1.5mm; text-align: center; }
+  table.structure td:first-child, table.structure th:first-child { text-align: left; width: 42%; }
+  table.structure tr.total td { border-top: 1px solid #000; font-weight: 700; }
+  .instr { border: 1px solid #000; padding: 2mm 4mm; margin-top: 5mm; }
+  .instr h4 { margin: 1.5mm 0 1mm; font-size: 11pt; }
+  .instr p { margin: 0 0 1.5mm; }
+  .phones { border: 1.5px solid #000; padding: 3mm 4mm; margin-top: 5mm; font-weight: 700; }
+  .sec-head { font-size: 14pt; font-weight: 700; border-bottom: 2px solid #000; padding-bottom: 1mm; margin: 0 0 3mm; }
+  .sec-note { font-style: italic; margin: 0 0 4mm; }
+  .item { margin: 0 0 6mm; }
+  .item .item { margin: 3mm 0 0; }
+  .item.newpage { break-before: page; }
+  .blist:not(:has(.txt:not(:empty), .eq:not(:empty), .img, .lines, .box)) ~ .plist > .item:first-child { margin-top: 0; }
+  .qhead { display: flex; justify-content: space-between; font-weight: 700; margin-bottom: 1.5mm; break-after: avoid; }
+  .irow { display: flex; gap: 2mm; }
+  .irow .lbl { width: 7mm; flex-shrink: 0; font-weight: 700; }
+  .irow .ibody { flex: 1; min-width: 0; }
+  .irow .mk { flex-shrink: 0; white-space: nowrap; padding-left: 3mm; }
+  .txt { margin: 0 0 1.5mm; }
+  .eq { text-align: center; margin: 2mm 0; font-size: 12pt; }
+  .imgbox { margin: 2mm auto; max-width: 100%; }
+  .imgbox .img { display: block; width: 100%; }
+  .ln > div { border-bottom: 1px solid #000; height: var(--line-gap); }
+  .box { border: 1px solid #000; margin: 2mm 0; }
+  .mc { display: grid; gap: 1.5mm; margin: 2mm 0 1mm; }  /* one option per row */
+  .mc .opt { display: flex; gap: 2mm; align-items: baseline; }
+  .mc .mcl { font-weight: 700; flex-shrink: 0; min-width: 5mm; }
+  .mc.pics { grid-template-columns: 1fr 1fr; gap: 5mm 8mm; }
+  .mc.pics .opt { align-items: flex-start; }
+  .optbody { flex: 1; min-width: 0; }
+  .optbody .graph, .optbody .imgbox { width: 100% !important; margin: 0; }
+  .optbody .tbl { margin: 0; }
+  /* Tables use separate borders: Chrome's print preview on Windows drops collapsed hairline cell borders. */
+  .tbl { border-collapse: separate; border-spacing: 0; margin: 2mm 0; border-top: 1px solid #000; border-left: 1px solid #000; }
+  .tbl td { border-right: 1px solid #000; border-bottom: 1px solid #000; padding: 1.5mm 2.5mm; min-width: 16mm; height: 8mm; vertical-align: middle; }
+  .tbl tr.head td { font-weight: 700; border-bottom-width: 1.5px; }
+  .graph { margin: 2mm auto; }
+  .graph svg { display: block; width: 100%; height: auto; overflow: visible; font-family: Arial, Helvetica, sans-serif; }
+  .g-grid line { stroke: #9a9a9a; stroke-width: .22; }
+  .g-axis { stroke: #000; stroke-width: .45; fill: none; }
+  .g-fn { stroke: #000; stroke-width: .6; fill: none; stroke-linejoin: round; }
+  .g-fn.dashed { stroke-dasharray: 2 1.4; }
+  .g-fit { stroke: #000; stroke-width: .45; }
+  .g-pt { fill: #000; }
+  .g-pt.open { fill: #fff; stroke: #000; stroke-width: .4; }
+  .g-bar rect { fill: #c8c8c8; stroke: #000; stroke-width: .35; }
+  .g-box line, .g-box rect { stroke: #000; stroke-width: .45; fill: #fff; }
+  .ans { display: flex; flex-wrap: wrap; gap: 3mm 8mm; margin: 2mm 0; align-items: center; }
+  .ans .abx { display: inline-flex; align-items: center; gap: 2mm; }
+  .ans .abox { display: inline-flex; justify-content: flex-end; align-items: flex-end; border: 1px solid #000; height: 9mm; width: 42mm; padding: 0 1.5mm 1mm; }
+  .end { text-align: center; font-weight: 700; margin-top: 8mm; }
+  .sec-head:has(.desc:not(.ed):empty) .sep { display: none; }  /* read-only view */
+  /* The questions sheet is split into A4 pages on screen (see paginate()); print breaks at the same places. */
+  .pgap { display: block; position: relative; }
+  .pgap .band { position: absolute; background: #EFEFEF; box-shadow: inset 0 5px 5px -5px rgba(0,0,0,.3), inset 0 -5px 5px -5px rgba(0,0,0,.3); }
+  .pgap .band span { position: absolute; right: 6mm; top: 3px; font: 10px 'Segoe UI', Arial, sans-serif; color: #999; }
+  .ctl, .add, .grip, .hint { display: none; }
+  @media screen {
+    /* Live document: anything with .ed is edited in place */
+    .ed { border-radius: 2px; cursor: text; }
+    .ed:hover { outline: 1px dashed #c8b89a; }
+    .ed:focus, .eq.ed:focus-within { outline: 2px solid var(--gold); background: #FFFDF3; white-space: pre-wrap; }
+    .ed:empty::before { content: attr(data-ph); color: #aaa; font-style: italic; font-weight: 400; }
+    .eq.ed { cursor: pointer; min-height: 1.4em; }
+    .eq math-field { display: inline-block; width: auto; min-width: 50%; font-size: 13pt; }
+    .mkwrap.need { outline: 2px solid var(--red); border-radius: 2px; }
+    .mkn.ed:empty, .num.ed:empty { display: inline-block; min-width: 1.6em; text-align: center; }
+    .mkn.ed:empty::before, .num.ed:empty::before { font-style: normal; }
+    .unitwrap:has(.unit:empty) { opacity: .45; }
+    .toggle { cursor: pointer; border-bottom: 1px dashed #c8b89a; }
+    /* Cover: tint everything that can be clicked, so teachers can see it's editable */
+    .cover { position: relative; }
+    .cover .ed, .cover .toggle { background: #FFF3C4; box-shadow: 0 0 0 2px #FFF3C4; border-radius: 3px; }
+    .cover .instr .ed { display: block; background: #FFF8DC; box-shadow: 0 0 0 2mm #FFF8DC; }
+    .cover .ed:hover, .cover .toggle:hover { background: #FFE89A; box-shadow: 0 0 0 2px #FFE89A; }
+    .cover .ed:focus { background: #FFFDF3; box-shadow: none; }
+    .hint { display: block; position: absolute; top: 4mm; right: 6mm; font: 11px 'Segoe UI', Arial, sans-serif; color: #8a6d00;
+            background: #FFF3C4; padding: 1px 6px; border-radius: 3px; }
+    .item.newpage { border-top: 1px dashed var(--gold); padding-top: 4mm; margin-top: 4mm; }
+    .item.newpage::before { content: "New page"; position: absolute; top: -2.2mm; right: 0; padding: 0 4px; background: #fff;
+                            font: 10px 'Segoe UI', Arial, sans-serif; color: var(--gold); }
+    .opt { position: relative; }
+    .optctl { position: absolute; top: -13px; left: 6mm; padding: 1px 2px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); z-index: 7; }
+    .opt:hover > .optctl { display: flex; }
+    .mcl[data-act] { cursor: pointer; border-radius: 3px; padding: 0 1mm; }
+    .mcl[data-act]:hover { background: #E7F1EA; }
+    .mcl.is-correct { background: var(--green); color: #fff; }
+    .mc .ed { flex: 1; min-width: 2em; }
+    .graph[data-graph] { cursor: pointer; }
+    .graph.editing { outline: 2px solid var(--gold); outline-offset: 2mm; }
+    .graph.editing svg { cursor: crosshair; }
+    .graph.editing .g-pt { cursor: grab; }
+    #palette { position: fixed; left: 10px; top: 96px; z-index: 40; display: flex; flex-direction: column; gap: 3px; padding: 5px;
+               background: #fff; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .pal { display: flex; flex-direction: column; align-items: center; width: 64px; padding: 5px 2px 4px; font-size: 18px; line-height: 1.1; cursor: grab; }
+    .pal span { font-size: 10.5px; color: #555; margin-top: 2px; }
+    body.palette #paper-wrap { padding-left: 94px; }
+    .item.drop-target { outline: 2px dashed var(--green); outline-offset: 2px; background: #F1F8F3; }
+    .sec.drop-target > .add[data-act="add-question"] { outline: 2px dashed var(--green); color: var(--green); }
+    #graph-panel { position: fixed; top: 92px; right: 12px; bottom: 12px; width: 410px; overflow: auto; z-index: 50; background: #fff;
+                   border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 12px 14px; font-size: 14px; }
+    body.graphing #paper-wrap { padding-right: 440px; }
+    .gp-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .gp-head b { color: var(--red); font-size: 17px; }
+    #graph-panel h4 { margin: 14px 0 4px; font-size: 13px; color: #555; text-transform: uppercase; letter-spacing: .04em; }
+    .gp-row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin: 5px 0; }
+    .gp-row input[type=number] { width: 56px; padding: 3px 4px; }
+    .gp-row input:not([type]) { padding: 3px 5px; }
+    .gp-row input.expr { flex: 1; min-width: 150px; font-family: Consolas, 'Courier New', monospace; }
+    .gp-err { color: var(--red); font-size: 12px; margin: -2px 0 4px; }
+    .gp-chk { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; }
+    .gp-note { color: #666; font-size: 12px; }
+    #graph-panel textarea { width: 100%; font: 13px Consolas, 'Courier New', monospace; }
+    #graph-panel select { font-size: 14px; }
+    .logo-hint { display: flex; align-items: center; justify-content: center; height: 24mm; width: 60mm; margin: 0 auto 1mm;
+                 border: 1.5px dashed #c8b89a; border-radius: 4px; color: #8a7a5a; font: 12px 'Segoe UI', Arial, sans-serif; text-align: center; }
+    #school-btn { background: none; color: #fff; border-color: rgba(255,255,255,.6); font-size: 13px; }
+    #school-btn:hover { border-color: #fff; }
+    .eq input.latex { display: block; width: 80%; margin: 4px auto 0; font: 12px Consolas, 'Courier New', monospace; }
+
+    /* Structure controls: shown on hover, never printed */
+    .item, .blk, .sec, .box, .lines, .imgbox { position: relative; }
+    .ctl { font: 400 12px 'Segoe UI', Arial, sans-serif; color: #333; white-space: nowrap; align-items: center; gap: 3px; z-index: 5; }
+    .ctl button { font-size: 12px; padding: 1px 7px; }
+    .menu button { font-size: 14px; padding: 5px 11px; }
+    .handle { cursor: grab; color: #777; font-size: 15px; padding: 0 3px; user-select: none; }
+    /* Question/part controls sit in the margin beside the label: ⠿ drags, hovering + opens the menu.
+       Nothing covers the page until the teacher reaches for it. */
+    /* Each question/part owns the 12 mm of margin beside it (same layout: negative margin + equal padding),
+       so hovering, and dragging straight down, the margin still lands on a question. */
+    .qlist > .item, .plist > .item { margin-left: -15mm; padding-left: 15mm; }
+    .gutter { position: absolute; top: -1px; left: .6mm; padding: 1px; background: #fff;
+              border: 1px solid var(--border); border-radius: var(--radius); }
+    .item.hot > .gutter, .gutter:focus-within { display: flex; }
+    .plus { cursor: pointer; font: 700 16px 'Segoe UI', Arial, sans-serif; color: var(--red); padding: 0 5px; user-select: none; }
+    .menu { display: none; position: absolute; left: calc(100% - 3px); top: -8px; gap: 5px; padding: 6px; background: #fff;
+            border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .gutter:hover .menu, .gutter:focus-within .menu { display: flex; }
+    .bctl { position: absolute; top: 2px; right: 2px; padding: 1px 2px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); z-index: 6; }
+    .blk.hot > .bctl { display: flex; }
+    .blk.hot { outline: 1px dotted #d8cdb6; outline-offset: 2px; }
+    .sctl { position: absolute; right: 0; bottom: 1.5mm; padding: 1px 3px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); }
+    .sec-head { position: relative; }
+    .sec-head:hover .sctl, .sctl:focus-within { display: flex; }
+    .add { display: block; width: 100%; margin: 1mm 0 3mm; padding: 2px; font: 12px 'Segoe UI', Arial, sans-serif; color: #888;
+           background: none; border: 1px dashed transparent; text-align: left; }
+    .add:hover { color: var(--red); border-color: var(--border); }
+    .qlist:empty { min-height: 10mm; outline: 1px dashed var(--border); }
+    .grip { position: absolute; left: 0; right: 0; bottom: -6px; height: 12px; cursor: ns-resize; z-index: 6; }
+    .grip::after { content: ""; display: block; width: 44px; height: 4px; margin: 4px auto; background: var(--gold); border-radius: 2px; }
+    .imgbox > .grip { left: auto; right: -6px; width: 12px; height: 12px; cursor: nwse-resize; background: var(--gold); border-radius: 2px; }
+    .imgbox > .grip::after { display: none; }
+    .blk.hot .grip, .blk.resizing .grip { display: block; }
+    .tip { position: absolute; right: 0; bottom: 6px; background: var(--gold); color: #fff; font: 11px 'Segoe UI', Arial, sans-serif; padding: 0 5px; border-radius: 3px; }
+    .sortable-ghost { opacity: .35; }
+    #paper.folding-questions .qlist > .item > .blist > .blk:not(:first-child),
+    #paper.folding-questions .qlist > .item > .plist,
+    #paper.folding-sections .seclist > .sec > :not(.sec-head) { display: none; }
+  }
+
+  /* A4. The cover keeps the docx margins and no footer; other pages print "Page X of Y". */
+  @page { size: A4; margin: 15mm 15mm 16mm;
+    @bottom-center { content: "Page " counter(page) " of " counter(pages); font: 9pt Arial, sans-serif; } }
+  @page :first { margin: 12.5mm 25.4mm 5mm; @bottom-center { content: none; } }
+  @media print {
+    html, body, #app { height: auto; display: block; background: #fff; }
+    #topbar, #toolbar, #home { display: none !important; }
+    #editor-view, #paper-wrap { display: block; overflow: visible; padding: 0; }
+    .sheet { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; }
+    .cover, .body { break-after: page; }
+    .sec { break-before: page; }
+    .item { break-inside: avoid; }
+    .ed:empty:not(td), .sec-note:empty, .ctl, .add, .grip, .tip { display: none !important; }
+    .sec-head:has(.desc:empty) .sep, .unitwrap:has(.unit:empty) { display: none; }
+    #paper { zoom: 1 !important; }
+    .mcl.is-correct { background: none; color: #000; }  /* the answer key never prints */
+    .pgap { display: none; }
+    #graph-panel, #palette { display: none !important; }
+    .pgap.brk { display: block; height: 0 !important; break-before: page; }
+    .pgap .band { display: none; }  /* the grey gap between pages is screen-only */
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <img id="top-logo" alt="" hidden>
+    <h1>Exam Assistant</h1>
+    <label for="code">Staff code</label>
+    <input id="code" maxlength="3" autocomplete="off" placeholder="ABC">
+    <button id="school-btn" title="School name, logo, cover wording, fonts and colours">School settings</button>
+    <span id="status"></span>
+  </header>
+
+  <main id="home">
+    <div class="home-inner">
+      <div class="tabs">
+        <button id="tab-mine" class="on">My exams</button>
+        <button id="tab-shelf">Faculty shelf</button>
+        <select id="shelf-area" hidden></select>
+        <input id="home-filter" type="search" placeholder="Filter by topic, type, subject or year" style="min-width: 260px">
+        <span class="grow"></span>
+        <button id="new-btn" class="primary">+ New exam</button>
+      </div>
+      <div id="home-list"></div>
+      <p class="note">Your staff code identifies you; it is not a password. Exams are private to your code
+        unless you tick <b>Share with faculty</b>, which puts a read-only copy on the Faculty shelf.</p>
+    </div>
+  </main>
+
+  <div id="editor-view" hidden>
+    <div id="toolbar">
+      <button id="back-btn">← My exams</button>
+      <button id="undo-btn" title="Undo (Ctrl+Z)" disabled>↶ Undo</button>
+      <span id="totals"></span>
+      <span class="grow"></span>
+      <span class="note" id="hint">Click any text to edit it · hover a question and use the + beside it</span>
+      <button id="settings-btn">Exam settings</button>
+      <button id="dup-btn" hidden>Duplicate to my exams</button>
+      <button id="print-btn" class="primary" title="Chrome/Edge: Save as PDF, A4, headers and footers off">Print / Save as PDF</button>
+    </div>
+    <div id="paper-wrap"><div id="paper"></div></div>
+  </div>
+</div>
+
+<dialog id="settings">
+  <form method="dialog" class="settings">
+    <h3>Exam settings</h3>
+    <label>Learning area <select id="s-area"></select></label>
+    <label>Year level
+      <select id="s-year"><option value="">—</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option></select>
+    </label>
+    <label>Assessment
+      <select id="s-type"><option>Exam</option><option>Test</option><option>CAT</option><option>SAC</option><option>Quiz</option><option>Assignment</option><option>Practice exam</option></select>
+    </label>
+    <label>Topic / unit <input id="s-topic" placeholder="e.g. Probability, or Unit 3 AoS 1"></label>
+    <label>Subject <input id="s-subject" list="subjects" placeholder="e.g. Business Management"></label>
+    <label>Calculators
+      <select id="s-calc">
+        <option value="none">None allowed</option>
+        <option value="scientific">Scientific permitted</option>
+        <option value="cas">CAS permitted</option>
+      </select>
+    </label>
+    <label class="chk"><input type="checkbox" id="s-teacher"> Print my staff code in the Teacher box</label>
+    <label class="chk"><input type="checkbox" id="s-shared"> Share with faculty (read-only on the Faculty shelf)</label>
+    <p class="note">Everything else on the cover is edited by clicking it. In the instructions box, a line starting
+      with <b>##</b> is a heading and <b>{calculator}</b> inserts the calculator rule above.</p>
+    <div class="btns">
+      <button type="button" id="s-reset">Reset instructions to school default</button>
+      <span class="grow"></span>
+      <button class="primary">Done</button>
+    </div>
+  </form>
+</dialog>
+<nav id="palette" hidden aria-label="Blocks to add"></nav>
+<aside id="graph-panel" hidden>
+  <div class="gp-head"><b>Graph</b><span class="grow"></span><button id="gp-close" class="primary">Done</button></div>
+  <div id="gp-body"></div>
+</aside>
+<dialog id="school">
+  <form method="dialog" onsubmit="return false">
+    <div id="school-lock" class="settings">
+      <h3>School settings</h3>
+      <p class="note" id="school-lock-msg"></p>
+      <label>Admin PIN <input id="school-pin" type="password" autocomplete="current-password"></label>
+      <label id="school-pin2-row">Repeat PIN <input id="school-pin2" type="password" autocomplete="new-password"></label>
+      <p class="bad" id="school-lock-err"></p>
+      <div class="btns"><button type="button" id="school-cancel">Cancel</button><span class="grow"></span><button type="button" class="primary" id="school-unlock">Unlock</button></div>
+    </div>
+    <div id="school-edit" class="settings" hidden>
+      <h3>School settings</h3>
+      <label>School name <input id="st-school_name" maxlength="120"></label>
+      <label>Logo
+        <span><input type="file" id="st-logo" accept="image/png,image/jpeg,image/webp"> <button type="button" id="st-logo-remove">Remove logo</button><br>
+        <img id="st-logo-preview" alt="" style="max-height: 60px; margin-top: 6px" hidden></span>
+      </label>
+      <label>Default task <input id="st-default_task" maxlength="120" placeholder="Written Examination"></label>
+      <label>Cover instructions <textarea id="st-instructions" rows="8"></textarea></label>
+      <p class="note">A line starting with ## is a heading; {calculator} inserts each exam's calculator rule. New exams use this; existing exams keep their own copy.</p>
+      <label>Notice box <textarea id="st-notice" rows="2"></textarea></label>
+      <h3>Printed page</h3>
+      <label>Font <select id="st-body_font"></select></label>
+      <label>Text size (pt) <input id="st-body_size" type="number" min="8" max="16" step="0.5"></label>
+      <label>School name size (pt) <input id="st-school_name_size" type="number" min="16" max="48" step="1"></label>
+      <label>Cover title size (pt) <input id="st-title_size" type="number" min="14" max="40" step="1"></label>
+      <label>Answer line gap (mm) <input id="st-line_spacing" type="number" min="6" max="14" step="0.5"></label>
+      <h3>App colours</h3>
+      <label>Main colour <input id="st-theme_colour" type="color"></label>
+      <label>Highlight colour <input id="st-accent_colour" type="color"></label>
+      <p class="bad" id="school-err"></p>
+      <div class="btns"><button type="button" id="st-change-pin">Change PIN</button><span class="grow"></span>
+        <button type="button" id="school-close">Close</button><button type="button" class="primary" id="school-save">Save</button></div>
+    </div>
+  </form>
+</dialog>
+<datalist id="subjects"></datalist>
+
+<script>
+// ---------------------------------------------------------------- school rules (one place each)
+const LEARNING_AREAS = ["English", "Health and PE", "Humanities", "Languages", "Mathematics", "Science", "Technologies", "The Arts"];
+const SEED_SUBJECTS = ["Biology", "Business Management", "Chemistry", "EAL", "English", "General Mathematics", "Geography",
+  "Health", "History", "Mathematical Methods", "Physical Education", "Physics", "Psychology", "Science",
+  "Specialist Mathematics", "Year 7 Mathematics", "Year 8 Mathematics", "Year 9 Mathematics", "Year 10 Mathematics"];
+const CALCULATOR = {
+  none: "No scientific calculator or CAS calculator is allowed in this examination.",
+  scientific: "A scientific calculator is permitted in this examination. CAS calculators are NOT permitted.",
+  cas: "A CAS calculator is permitted in this examination.",
+};
+// Built-in cover wording, used until a school sets its own in School settings.
+// "## " starts a heading; {calculator} is replaced by the calculator choice.
+const DEFAULT_INSTRUCTIONS = `## Instructions
+Students are permitted to bring into the examination room: pens, pencils, highlighters, erasers, sharpeners and rulers.
+Students are NOT permitted to bring into the examination room: blank sheets of paper, support sheets, white-out liquid/correction tape and additional resources.
+{calculator}
+## Materials supplied
+Question and answer book.
+Additional space is available at the end of the book if you need extra paper to complete an answer. Clearly label all answers with the appropriate section and question number.`;
+const PHONES = "Students are NOT permitted to bring mobile phones and/or any other unauthorised electronic devices into the examination room";
+
+// ---------------------------------------------------------------- state
+let code = "", uid = null, exam = null, examOwner = "", readOnly = false, tab = "mine";
+let saveTimer = null, saving = false, dirty = false;
+
+// ---------------------------------------------------------------- helpers
+const $ = s => document.querySelector(s);
+const normalise = s => /^[A-Za-z]{3}$/.test((s || "").trim()) ? s.trim().toUpperCase() : "";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const newUid = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, "0")).join("");
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+function h(tag, props = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid);
+  for (const [k, v] of Object.entries(props)) {  // after kids, so a <select> value can match its options
+    if (v == null || v === false) continue;
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "class") el.className = v;
+    else if (k in el && k !== "list") el[k] = v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  return el;
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+
+function setStatus(text, error = false) {
+  $("#status").textContent = text;
+  $("#status").className = error ? "error" : "";
+}
+
+function tex(latex) {
+  try { return MathLive.convertLatexToMarkup(latex); } catch { return esc(latex); }
+}
+// Plain text with $...$ inline maths.
+const richText = s => String(s || "").split(/\$([^$]+)\$/).map((p, i) => i % 2 ? tex(p) : esc(p).replace(/\n/g, "<br>")).join("");
+
+// ---------------------------------------------------------------- marks
+const isLeaf = n => !n.parts || n.parts.length === 0;
+const total = n => isLeaf(n) ? (Number(n.marks) || 0) : n.parts.reduce((s, p) => s + total(p), 0);
+const sectionTotal = s => s.questions.reduce((a, q) => a + total(q), 0);
+const marksText = m => m === 1 ? "1 mark" : `${m} marks`;
+function missingMarks(ex) {
+  let n = 0;
+  const walk = it => isLeaf(it) ? (Number(it.marks) > 0 || n++) : it.parts.forEach(walk);
+  ex.sections.forEach(s => s.questions.forEach(walk));
+  return n;
+}
+const ROMAN = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii"];
+const label = (depth, i) => depth === 0 ? `Question ${i + 1}` : depth === 1 ? String.fromCharCode(97 + i) + "." : (ROMAN[i] || i + 1) + ".";
+
+// ---------------------------------------------------------------- model
+const newItem = () => ({ marks: null, blocks: [{ type: "text", value: "" }], parts: [] });
+const newSection = name => ({ name, description: "", to_answer: null, instructions: "", questions: [newItem()] });
+const defaults = () => ({
+  learning_area: "", subject: "", unit: "", task: settings.default_task, semester: "1",
+  year: String(new Date().getFullYear()), reading_min: 10, writing_min: 60, calculator: "none",
+  instructions: settings.instructions, show_teacher: false, shared: false, sections: [newSection("A")],
+  assessment_type: "Exam", year_level: "",
+});
+const examTitle = ex => [ex.unit, ex.subject, "·", ex.task, `S${ex.semester} ${ex.year}`]
+  .filter(Boolean).join(" ").replace(/^· /, "") || "Untitled exam";
+
+// ---------------------------------------------------------------- saving (never lose a teacher's work)
+function scheduleSave(track = true) {
+  if (readOnly) return;
+  if (track) trackUndo();
+  dirty = true;
+  setStatus("Unsaved changes…");
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(save, 800);
+}
+
+async function save() {
+  if (!dirty || readOnly) return;
+  if (saving) { saveTimer = setTimeout(save, 400); return; }
+  saving = true; dirty = false;
+  exam.title = examTitle(exam);
+  exam.total_marks = exam.sections.reduce((a, s) => a + sectionTotal(s), 0);  // shown on the exam list
+  try {
+    await api(`/api/exams/${uid}?owner=${code}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(exam),
+    });
+    if (!dirty) setStatus("Saved");
+  } catch (e) {
+    dirty = true;
+    setStatus(`Not saved — retrying (${e.message})`, true);
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 5000);
+  } finally {
+    saving = false;
+  }
+}
+window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+// ---------------------------------------------------------------- undo
+// Whole-exam snapshots. A burst of edits (typing, a drag, a resize) settles after a short pause and
+// counts as one step.
+let undoStack = [], settled = null, burstTimer = null;
+function resetUndo() {
+  clearTimeout(burstTimer);
+  undoStack = []; settled = JSON.stringify(exam); burstTimer = null;
+  updateUndoButton();
+}
+function trackUndo() {
+  if (!burstTimer && settled !== null) {
+    undoStack.push(settled);
+    if (undoStack.length > 100) undoStack.shift();
+  }
+  clearTimeout(burstTimer);
+  burstTimer = setTimeout(() => { burstTimer = null; settled = JSON.stringify(exam); }, 600);
+  updateUndoButton();
+}
+function undo() {
+  if (readOnly || !undoStack.length) return;
+  if (document.activeElement?.closest?.("#paper [data-ref]")) document.activeElement.blur();
+  clearTimeout(burstTimer); burstTimer = null;
+  exam = JSON.parse(undoStack.pop());
+  settled = JSON.stringify(exam);
+  renderAll();
+  scheduleSave(false);
+  updateUndoButton();
+}
+function updateUndoButton() { $("#undo-btn").disabled = !undoStack.length; }
+
+// ---------------------------------------------------------------- home
+function show(view) {
+  $("#home").hidden = view !== "home";
+  $("#editor-view").hidden = view !== "editor";
+  $("#code").disabled = view === "editor";  // the code is the owner of every save
+  if (view !== "editor") { $("#palette").hidden = true; document.body.classList.remove("palette"); }
+}
+
+let homeRequest = 0;  // a slow list response must not overwrite a newer one (e.g. after the code changed)
+async function renderHome() {
+  const request = ++homeRequest;
+  show("home");
+  history.replaceState(null, "", location.pathname);
+  $("#tab-mine").classList.toggle("on", tab === "mine");
+  $("#tab-shelf").classList.toggle("on", tab === "shelf");
+  $("#shelf-area").hidden = tab !== "shelf";
+  $("#new-btn").disabled = !code;
+  const box = $("#home-list");
+  box.replaceChildren();
+  if (!code) {
+    box.append(h("p", { class: "note" }, "Enter your three-letter staff code (for example ABC) in the top bar to see your exams."));
+    return;
+  }
+  let rows;
+  try {
+    rows = tab === "mine"
+      ? await api(`/api/exams?owner=${code}`)
+      : await api(`/api/shelf?owner=${code}&learning_area=${encodeURIComponent($("#shelf-area").value)}`);
+  } catch (e) {
+    if (request === homeRequest) box.append(h("p", { class: "bad" }, `Could not load exams: ${e.message}`));
+    return;
+  }
+  if (request !== homeRequest) return;
+  if (tab === "mine") fillSubjects(rows.map(r => r.subject));
+  if (!rows.length) box.append(h("p", { class: "note" }, tab === "mine" ? "No exams yet. Click + New exam." : "Nothing has been shared here yet."));
+  const filter = $("#home-filter").value.trim().toLowerCase();
+  if (filter) rows = rows.filter(r => [r.title, r.topic, r.assessment_type, r.subject, r.learning_area, r.year_level && `year ${r.year_level}`, r.task]
+    .join(" ").toLowerCase().includes(filter));
+  if (filter && !rows.length) box.append(h("p", { class: "note" }, "No exams match that filter."));
+  // Several tests, CATs and exams per subject and year level sit together under one heading.
+  const heading = r => {
+    const subject = r.subject || "No subject";
+    return r.year_level && !subject.includes(r.year_level) ? `Year ${r.year_level} ${subject}` : subject;
+  };
+  const groups = {};
+  for (const r of rows) ((groups[r.learning_area || "No learning area"] ??= {})[heading(r)] ??= []).push(r);
+  for (const area of Object.keys(groups).sort()) {
+    const div = h("div", { class: "area" }, h("h2", {}, area));
+    for (const subject of Object.keys(groups[area]).sort()) {
+      div.append(h("h3", {}, subject), ...groups[area][subject].map(homeRow));
+    }
+    box.append(div);
+  }
+}
+
+function homeRow(r) {
+  const mine = r.owner === code;
+  return h("div", { class: "row" },
+    h("div", { class: "t" },
+      h("div", {}, r.topic || r.title || "Untitled exam"),
+      h("div", { class: "details" }, [r.assessment_type, r.year_level && `Year ${r.year_level}`, r.task,
+        r.semester && `Semester ${r.semester} ${r.year || ""}`.trim(), r.total_marks != null && marksText(Number(r.total_marks))].filter(Boolean).join(" · "))),
+    h("span", { class: "m" }, `${mine ? "" : r.owner + " · "}${r.shared ? "shared · " : ""}updated ${new Date(r.updated_at).toLocaleDateString()}`),
+    h("button", { onclick: () => openExam(r.uid) }, mine ? "Open" : "View"),
+    h("button", { onclick: () => duplicate(r.uid) }, mine ? "Duplicate" : "Duplicate to my exams"),
+    mine && h("button", { class: "danger", onclick: () => deleteExam(r) }, "Delete"));
+}
+
+function fillSubjects(extra) {
+  const all = [...new Set([...SEED_SUBJECTS, ...extra.filter(Boolean)])].sort();
+  $("#subjects").replaceChildren(...all.map(s => h("option", { value: s })));
+}
+
+async function newExam() {
+  uid = newUid(); exam = defaults(); examOwner = code; readOnly = false;
+  openEditor();
+  scheduleSave(false);
+}
+
+async function openExam(id) {
+  try {
+    const r = await api(`/api/exams/${id}?owner=${code}`);
+    uid = id; exam = { ...defaults(), ...r.exam }; examOwner = r.owner; readOnly = r.owner !== code;
+    dirty = false;
+    openEditor();
+    setStatus(readOnly ? `Viewing ${r.owner}'s shared exam (read-only)` : "Saved");
+  } catch (e) {
+    alert(`Could not open that exam: ${e.message}`);
+    renderHome();
+  }
+}
+
+async function duplicate(id) {
+  try {
+    const r = await api(`/api/exams/${id}?owner=${code}`);
+    const copy = { ...structuredClone(r.exam), shared: false };
+    const newId = newUid();
+    await api(`/api/exams/${newId}?owner=${code}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(copy) });
+    openExam(newId);
+  } catch (e) {
+    alert(`Could not duplicate: ${e.message}`);
+  }
+}
+
+async function deleteExam(r) {
+  if (!confirm(`Delete "${r.title}"? This cannot be undone.`)) return;
+  try { await api(`/api/exams/${r.uid}?owner=${code}`, { method: "DELETE" }); }
+  catch (e) { alert(`Could not delete: ${e.message}`); }
+  renderHome();
+}
+
+// ---------------------------------------------------------------- editor
+function openEditor() {
+  show("editor");
+  history.replaceState(null, "", `#exam=${uid}`);
+  $("#settings-btn").hidden = $("#hint").hidden = $("#undo-btn").hidden = $("#palette").hidden = readOnly;
+  document.body.classList.toggle("palette", !readOnly);
+  resetUndo();
+  $("#dup-btn").hidden = !readOnly;
+  renderAll();
+  fitPaper();
+}
+
+function renderAll() { renderPaper(); updateTotals(); }
+function changed() { renderAll(); scheduleSave(); }  // anything that changes what is drawn
+
+function updateTotals() {
+  updateLive();
+  const missing = missingMarks(exam);
+  const sum = exam.sections.reduce((a, s) => a + sectionTotal(s), 0);
+  $("#totals").replaceChildren(`Total: ${marksText(sum)}`,
+    missing ? h("span", { class: "bad" }, ` · ${missing} ${missing === 1 ? "item needs" : "items need"} marks`) : "");
+  $("#print-btn").disabled = missing > 0 || !exam.sections.some(s => s.questions.length);
+}
+
+function sortable(el, arr, group, handle) {
+  el._arr = arr;
+  Sortable.create(el, {
+    // ">" = direct children only: nested parts are .item too, and spacers between pages are not draggable.
+    draggable: { sections: ">.sec", blocks: ">.blk" }[group] || ">.item",
+    // forceFallback: mouse-driven dragging behaves the same in every browser with nested lists,
+    // and never collides with the native drop of image files onto a question.
+    group, handle, animation: 150, forceFallback: true, fallbackOnBody: true, swapThreshold: 0.65,
+    // Fold questions (or sections) to their headings while one is dragged. Tall questions otherwise make the
+    // page jump under the pointer, and a drop into another section can land back where it started.
+    onStart: e => {
+      if (group !== "questions" && group !== "sections") return;
+      const before = e.item.getBoundingClientRect().top;
+      $("#paper").querySelectorAll(".pgap").forEach(g => g.remove());
+      $("#paper").classList.add(`folding-${group}`);
+      // Folding what's above would slide the dragged item away from the pointer; pad the top to hold it still.
+      $("#paper-wrap").style.paddingTop = `${20 + before - e.item.getBoundingClientRect().top}px`;
+    },
+    onEnd: e => {
+      $("#paper").classList.remove("folding-questions", "folding-sections");
+      $("#paper-wrap").style.paddingTop = "";
+      // Draggable indexes count only the draggable items, not the page-gap spacers between them.
+      if (e.from === e.to && e.oldDraggableIndex === e.newDraggableIndex) return;
+      const [moved] = e.from._arr.splice(e.oldDraggableIndex, 1);
+      e.to._arr.splice(e.newDraggableIndex, 0, moved);
+      setTimeout(changed);
+    },
+  });
+}
+
+function pickImage(done) {
+  const input = h("input", { type: "file", accept: "image/*" });
+  input.onchange = async () => {
+    if (!input.files[0]) return;
+    try { done(await loadImage(input.files[0])); } catch (e) { alert(e.message); }
+  };
+  input.click();
+}
+
+// Images are stored inside the exam, so shrink big photos (autosave sends the whole exam).
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+      const c = h("canvas", { width: Math.round(img.width * scale), height: Math.round(img.height * scale) });
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      // PNG keeps diagrams crisp; everything else (photos) goes to JPEG.
+      resolve(/png|gif/.test(file.type) ? c.toDataURL("image/png") : c.toDataURL("image/jpeg", 0.9));
+    };
+    img.onerror = () => reject(new Error("That file isn't an image this browser can read."));
+    img.src = url;
+  });
+}
+
+// ---------------------------------------------------------------- the paper (the editor)
+// The page is the only editor. paperRefs maps the numbers in these attributes back to the exam:
+//   data-ref   an editable field        {obj, key, kind}
+//   data-live  a number kept up to date {live(el)}
+//   data-node  a section/question/block {obj, arr}   (hover controls act on it)
+//   data-arr   a drag-and-drop list     {arr, group, handle}
+let paperRefs = [], paperStale = false;
+const reg = entry => paperRefs.push(entry) - 1;
+const live = fn => `data-live="${reg({ live: fn })}"`;
+
+function updateLive() {
+  for (const el of document.querySelectorAll("#paper [data-live]")) paperRefs[el.dataset.live].live(el);
+}
+
+function instructionsHtml(ex) {
+  return (ex.instructions || "").replace("{calculator}", CALCULATOR[ex.calculator] || "")
+    .split("\n").filter(l => l.trim())
+    .map(l => l.startsWith("## ") ? `<h4>${esc(l.slice(3))}</h4>` : `<p>${esc(l)}</p>`).join("");
+}
+
+function viewHtml(r) {
+  const v = r.obj[r.key];
+  if (r.kind === "rich" || r.kind === "option") return richText(v);
+  if (r.kind === "instr") return instructionsHtml(r.obj);
+  if (r.kind === "equation") return v ? tex("\\displaystyle " + v) : "";
+  return esc(v ?? "");
+}
+
+function editable(tag, cls, obj, key, kind, placeholder) {
+  const r = { obj, key, kind };
+  if (readOnly) return `<${tag} class="${cls}">${viewHtml(r)}</${tag}>`;
+  const how = kind === "equation" ? ` title="Click to edit"` : ` contenteditable="plaintext-only" spellcheck="true"`;
+  return `<${tag} class="${cls} ed" data-ref="${reg(r)}" data-ph="${esc(placeholder)}"${how}>${viewHtml(r)}</${tag}>`;
+}
+
+const node = (obj, arr, kind) => readOnly ? "" : ` data-node="${reg({ obj, arr })}" data-kind="${kind}"`;
+const list = (arr, group, handle) => readOnly ? "" : ` data-arr="${reg({ arr, group, handle })}"`;
+
+function renderPaper() {
+  // Never rebuild under the teacher's caret; the focusout handler catches up.
+  const active = document.activeElement;
+  if ($("#paper").contains(active) && active.closest("[data-ref]")) { paperStale = true; return; }
+  paperStale = false;
+  paperRefs = [];
+  const ex = exam, ed = !readOnly;
+  const answered = s => s.to_answer == null || s.to_answer === "" ? s.questions.length : Number(s.to_answer);
+  const nQ = ex.sections.reduce((a, s) => a + s.questions.length, 0);
+  const sectionName = s => `Section ${s.name}${s.description ? ": " + s.description : ""}`;
+
+  const cover = `<section class="sheet cover">
+    ${ed ? `<div class="hint">Highlighted text can be clicked and edited</div>` : ""}
+    <table class="namebox"><tr><th>Name</th><td></td></tr><tr><th>Teacher</th><td>${ex.show_teacher ? esc(examOwner) : ""}</td></tr></table>
+    <div class="centre">
+      ${settings.has_logo ? `<img class="logo" src="/school-logo?v=${logoVersion}" alt="">` : ed ? `<div class="logo-hint">Add your school's logo in School settings</div>` : ""}
+      <div class="school">${esc(settings.school_name)}</div>
+      <div class="big"><span class="unitwrap">${editable("span", "unit", ex, "unit", "plain", "Unit or topic")} </span>${editable("span", "subj", ex, "subject", "plain", "Subject")}</div>
+      <div class="big">${editable("span", "", ex, "task", "plain", "Task")}</div>
+      <div class="big">Semester ${ed ? `<span class="toggle" data-act="semester" title="Click to switch semester">${esc(ex.semester)}</span>` : esc(ex.semester)} ${editable("span", "", ex, "year", "plain", "Year")}</div>
+    </div>
+    <p class="time">Reading time: ${editable("span", "num", ex, "reading_min", "number", "0")} minutes</p>
+    <p class="time">Writing time: ${editable("span", "num", ex, "writing_min", "number", "0")} minutes</p>
+    <div class="qab">Question and answer book</div>
+    <div class="sob">Structure of book</div>
+    <table class="structure">
+      <tr><th>Section</th><th>Number of questions</th><th>Number of questions to be answered</th><th>Number of marks</th></tr>
+      ${ex.sections.map(s => `<tr><td ${live(el => el.textContent = sectionName(s))}></td><td>${s.questions.length}</td><td ${live(el => el.textContent = answered(s))}></td><td ${live(el => el.textContent = sectionTotal(s))}></td></tr>`).join("")}
+      <tr class="total"><td>Total</td><td>${nQ}</td><td ${live(el => el.textContent = ex.sections.reduce((a, s) => a + answered(s), 0))}></td><td ${live(el => el.textContent = ex.sections.reduce((a, s) => a + sectionTotal(s), 0))}></td></tr>
+    </table>
+    <div class="instr">${editable("div", "", ex, "instructions", "instr", "Instructions")}</div>
+    <div class="phones">${esc(settings.notice)}</div>
+  </section>`;
+
+  const sections = ex.sections.map(s => `<div class="sec"${node(s, ex.sections, "sec")}>
+      <div class="sec-head">Section ${editable("span", "sname", s, "name", "plain", "A")}<span class="sep">: </span>${editable("span", "desc", s, "description", "plain", "Section description")}${ed ? `
+        <span class="sctl ctl"><span class="handle h-sec" title="Drag to move this section">⠿</span>
+          To be answered: ${editable("span", "num", s, "to_answer", "number", "all")}
+          <button data-act="del" title="Delete section">✕</button></span>` : ""}</div>
+      ${editable("p", "sec-note", s, "instructions", "rich", "Section instructions (optional)")}
+      <div class="qlist"${list(s.questions, "questions", ".h-d0")}>${s.questions.map((q, i) => itemHtml(q, s.questions, 0, i)).join("")}</div>
+      ${ed ? `<button class="add" data-act="add-question">+ Question</button>` : ""}
+    </div>`).join("");
+
+  const extra = `<section class="sheet extra">
+    <div class="sec-head">Extra space for responses</div>
+    <p class="sec-note">Clearly number all responses in this space.</p>
+    <div class="lines"><div class="ln">${"<div></div>".repeat(24)}</div></div>
+    <p class="end">END OF QUESTION AND ANSWER BOOK</p>
+  </section>`;
+
+  const body = `<section class="sheet body"><div class="seclist"${list(ex.sections, "sections", ".h-sec")}>${sections}</div>
+    ${ed ? `<button class="add" data-act="add-section">+ Section</button>` : ""}</section>`;
+
+  const paper = $("#paper");
+  paper.innerHTML = cover + body + extra;
+  if (graphEditing && !markEditingGraph()) closeGraphPanel();  // its graph was deleted or undone
+  paginate();
+  if (ed) for (const el of paper.querySelectorAll("[data-arr]")) {
+    const r = paperRefs[el.dataset.arr];
+    sortable(el, r.arr, r.group, r.handle);
+  }
+  updateLive();
+}
+
+function itemHtml(n, arr, depth, i) {
+  const ed = !readOnly;
+  const blocks = `<div class="blist"${list(n.blocks, "blocks", ".h-block")}>${n.blocks.map(b => blockHtml(b, n.blocks)).join("")}</div>`;
+  const parts = `<div class="plist"${depth < 2 ? list(n.parts, `parts${depth + 1}`, `.h-d${depth + 1}`) : ""}>${n.parts.map((p, pi) => itemHtml(p, n.parts, depth + 1, pi)).join("")}</div>`;
+  const bar = ed ? `<div class="gutter ctl">
+      <span class="handle h-d${depth}" title="Drag to move">⠿</span><span class="plus" title="Add to this, or delete it">+</span>
+      <div class="menu">
+        ${depth < 2 ? `<button data-act="add-part">${depth === 0 ? "+ Part" : "+ Sub-part"}</button>` : ""}
+        <button data-act="add-text">Text</button><button data-act="add-choices">Multiple choice</button><button data-act="add-graph">Graph</button><button data-act="add-table">Table</button><button data-act="add-answer">Answer box</button><button data-act="add-equation">Equation</button><button data-act="add-image">Image</button>
+        <button data-act="add-lines">Lines</button><button data-act="add-box">Box</button>
+        ${depth < 2 ? `<button data-act="new-page" title="Start this on a new page when printed">${n.new_page ? "✓ New page" : "New page"}</button>` : ""}
+        <button data-act="del" title="Delete">✕</button></div></div>` : "";
+  const leafMarks = isLeaf(n)
+    ? `<span class="mkwrap" ${live(el => el.classList.toggle("need", !readOnly && !(Number(n.marks) > 0)))}>${editable("span", "mkn", n, "marks", "number", "?")}</span>` +
+      `<span ${live(el => el.textContent = Number(n.marks) === 1 ? " mark" : " marks")}></span>`
+    : "";
+  if (depth === 0) {
+    const marks = leafMarks || `<span ${live(el => el.textContent = marksText(total(n)))}></span>`;
+    return `<div class="item${n.new_page ? " newpage" : ""}"${node(n, arr, "item")}>${bar}<div class="qhead"><span>${label(0, i)}</span><span>(${marks})</span></div>${blocks}${parts}</div>`;
+  }
+  return `<div class="item${n.new_page && depth < 2 ? " newpage" : ""}"${node(n, arr, "item")}>${bar}<div class="irow"><div class="lbl">${label(depth, i)}</div>` +
+    `<div class="ibody">${blocks}${parts}</div><div class="mk">${leafMarks}</div></div></div>`;
+}
+
+function blockInner(b, grips = true) {
+  const ed = !readOnly;
+  const grip = ed && grips ? `<span class="grip" data-grip></span>` : "";
+  let inner = "";
+  switch (b.type) {
+    case "text": inner = editable("div", "txt", b, "value", "rich", "Type here…"); break;
+    case "equation": inner = editable("div", "eq", b, "value", "equation", "Click to add an equation"); break;
+    case "image":
+      inner = String(b.value || "").startsWith("data:image/")
+        ? `<div class="imgbox" style="width:${clamp(Number(b.width) || 60, 10, 100)}%"><img class="img" src="${esc(b.value)}" alt="">${grip}</div>` : "";
+      break;
+    case "lines": inner = `<div class="lines"><div class="ln">${"<div></div>".repeat(clamp(Number(b.n) || 0, 0, 30))}</div>${grip}</div>`; break;
+    case "box": inner = `<div class="box" style="height:${clamp(Number(b.height_cm) || 0, 0, 25)}cm">${grip}</div>`; break;
+    case "graph": {
+      const g = graphSvg(b);
+      inner = `<div class="graph"${ed ? ` data-graph="${reg({ obj: b })}"` : ""} style="width:${clamp(Number(b.width) || 70, 25, 100)}%">` +
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${g.viewBox}">${g.inner}</svg></div>`;
+      break;
+    }
+    case "table": {
+      const rows = b.rows || [];
+      inner = `<table class="tbl"><tbody>${rows.map((row, ri) =>
+        `<tr${ri === 0 && b.header ? ` class="head"` : ""}>${row.map((c, ci) => editable("td", "cell", row, ci, "option", "")).join("")}</tr>`).join("")}</tbody></table>`;
+      break;
+    }
+    case "answer":  // "total cost = [      ]" or "[        m s⁻¹]"; several boxes sit side by side
+      inner = `<div class="ans">${(b.boxes || []).map(x => `<span class="abx">${editable("span", "alabel", x, "label", "option", "label")}` +
+        `<span class="abox">${editable("span", "unit", x, "units", "option", "units")}</span></span>`).join("")}</div>`;
+      break;
+    case "choices": {
+      // An option is text, or a graph, table or image; any picture option lays the options out 2 × 2 as VCAA papers do.
+      const opts = b.options || [], pics = opts.some(o => typeof o !== "string");
+      inner = `<div class="mc${pics ? " pics" : ""}">${opts.map((o, i) => {
+        const letter = String.fromCharCode(65 + i);
+        const mark = ed ? ` data-act="correct" data-i="${i}" title="Click to mark as the correct answer (not printed)"` : "";
+        const kinds = ed ? `<span class="optctl ctl">${[["text", "Text"], ["graph", "Graph"], ["table", "Table"], ["image", "Image"]]
+          .map(([k, name]) => `<button data-act="option-kind" data-i="${i}" data-kind="${k}">${name}</button>`).join("")}</span>` : "";
+        const body = typeof o === "string" ? editable("span", "", opts, i, "option", `Option ${letter}`) : `<div class="optbody">${blockInner(o, false)}</div>`;
+        return `<div class="opt">${kinds}<span class="mcl${b.correct === i ? " is-correct" : ""}"${mark}>${letter}.</span>${body}</div>`;
+      }).join("")}</div>`;
+      break;
+    }
+  }
+  return inner;
+}
+
+function blockHtml(b, arr) {
+  const ed = !readOnly, inner = blockInner(b);
+  const ctl = ed ? `<span class="bctl ctl"><span class="handle h-block" title="Drag to move">⠿</span>` +
+    `${b.type === "image" ? `<button data-act="replace-image">Replace</button>` : ""}` +
+    `${b.type === "choices" ? `<button data-act="options-graphs" title="Make every text option a graph (laid out 2 × 2)">All graphs</button><button data-act="add-option" title="Add an option">+ Option</button><button data-act="remove-option" title="Remove the last option">− Option</button>` : ""}` +
+    `${b.type === "graph" ? `<button data-act="edit-graph">Edit graph</button>` : ""}` +
+    `${b.type === "table" ? `<button data-act="add-row">+ Row</button><button data-act="remove-row">− Row</button><button data-act="add-col">+ Col</button><button data-act="remove-col">− Col</button><button data-act="toggle-header" title="Bold first row">${b.header ? "✓ " : ""}Header</button>` : ""}` +
+    `${b.type === "answer" ? `<button data-act="add-abox" title="Another box beside this one">+ Box</button><button data-act="remove-abox">− Box</button>` : ""}` +
+    `<button data-act="del" title="Remove">✕</button></span>` : "";
+  return `<div class="blk"${node(b, arr, "block")}>${ctl}${inner}</div>`;
+}
+
+
+// ---------------------------------------------------------------- graphs
+// A graph is data (axes, functions, points) drawn as SVG, so it prints as crisp lines and stays editable.
+const newGraph = () => ({ type: "graph", width: 70, grid: true, numbers: true, fit: false,
+  x: { min: -5, max: 5, step: 1, label: "x" }, y: { min: -5, max: 5, step: 1, label: "y" }, functions: [], points: [] });
+
+// Expressions as teachers type them: y = x^2 - 2, 3sin(2x), (x+1)(x-1), sqrt(x+1), e^(-x), 1/(x-1), ln(x), log(x).
+const FUNCS = { sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan,
+  sqrt: Math.sqrt, abs: Math.abs, ln: Math.log, log: Math.log10, exp: Math.exp };
+function compileExpr(src) {
+  const text = String(src || "").replace(/^\s*(y|f\s*\(\s*x\s*\))\s*=/i, "").replace(/π/g, "pi").replace(/[×·]/g, "*").replace(/[−–]/g, "-").toLowerCase();
+  const tokens = [];
+  for (const t of text.match(/\d*\.\d+|\d+|[a-z]+|\S/g) || []) {
+    if (!/^[a-z]+$/.test(t)) { tokens.push(t); continue; }
+    for (let rest = t; rest; ) {  // split letter runs such as "xsinx" into x, sin, x
+      const name = [...Object.keys(FUNCS), "pi"].find(n => rest.startsWith(n)) || rest[0];
+      tokens.push(name);
+      rest = rest.slice(name.length);
+    }
+  }
+  const PREC = { "+": 1, "-": 1, "*": 2, "/": 2, neg: 3, "^": 4 };
+  const isAtom = t => /^[\d.]/.test(t) || t === "x" || t === "pi" || t === "e";
+  const out = [], ops = [];
+  const binary = op => {
+    while (ops.length && ops.at(-1) !== "(" && !FUNCS[ops.at(-1)] &&
+           (PREC[ops.at(-1)] > PREC[op] || (PREC[ops.at(-1)] === PREC[op] && op !== "^"))) out.push(ops.pop());
+    ops.push(op);
+  };
+  let prev;
+  for (const t of tokens) {
+    const prevIsValue = prev !== undefined && (isAtom(prev) || prev === ")");
+    if (prevIsValue && (isAtom(t) || FUNCS[t] || t === "(")) binary("*");  // 2x, 3sin(x), (x+1)(x-1)
+    if (isAtom(t)) out.push(/^[\d.]/.test(t) ? parseFloat(t) : t);
+    else if (FUNCS[t] || t === "(") ops.push(t);
+    else if (t === ")") {
+      while (ops.length && ops.at(-1) !== "(") out.push(ops.pop());
+      if (!ops.length) throw new Error("There's a ) without a matching (.");
+      ops.pop();
+      if (FUNCS[ops.at(-1)]) out.push(ops.pop());
+    } else if ("+-*/^".includes(t)) {
+      if (!prevIsValue) {
+        if (t === "-") ops.push("neg");
+        else if (t !== "+") throw new Error(`"${t}" needs something before it.`);
+      } else binary(t);
+    } else throw new Error(`I don't understand "${t}".`);
+    prev = t;
+  }
+  while (ops.length) {
+    const op = ops.pop();
+    if (op === "(") throw new Error("A ( is missing its ).");
+    out.push(op);
+  }
+  let depth = 0;
+  for (const t of out) {
+    if (typeof t === "number" || isAtom(t)) depth++;
+    else if (t === "neg" || FUNCS[t]) { if (depth < 1) throw new Error("Something is missing."); }
+    else if (--depth < 1) throw new Error("Something is missing next to an operator.");
+  }
+  if (depth !== 1) throw new Error(out.length ? "Check the expression." : "Type an expression, e.g. x^2 - 2");
+  return x => {
+    const st = [];
+    for (const t of out) {
+      if (typeof t === "number") st.push(t);
+      else if (t === "x") st.push(x);
+      else if (t === "pi") st.push(Math.PI);
+      else if (t === "e") st.push(Math.E);
+      else if (t === "neg") st.push(-st.pop());
+      else if (FUNCS[t]) st.push(FUNCS[t](st.pop()));
+      else { const b = st.pop(), a = st.pop(); st.push(t === "+" ? a + b : t === "-" ? a - b : t === "*" ? a * b : t === "/" ? a / b : Math.pow(a, b)); }
+    }
+    return st[0];
+  };
+}
+
+function graphLayout(b) {
+  const X = b.x, Y = b.y, padL = 12, padR = 9, padT = 9, padB = 9, plotW = 150 - padL - padR;
+  const xr = X.max - X.min, yr = Y.max - Y.min;
+  const plotH = clamp(plotW * yr / (xr || 1), 30, 190);  // square grid cells unless that would be too tall or flat
+  return { X, Y, xr, yr, padL, padT, plotW, plotH, W: 150, H: padT + plotH + padB,
+    sx: v => padL + (v - X.min) / xr * plotW, sy: v => padT + (Y.max - v) / yr * plotH,
+    ix: px => X.min + (px - padL) / plotW * xr, iy: py => Y.max - (py - padT) / plotH * yr };
+}
+
+let graphSeq = 0;
+function graphSvg(b) {
+  if (b.kind === "boxplot") return boxplotSvg(b);
+  const L = graphLayout(b), { X, Y, sx, sy } = L;
+  if (!(L.xr > 0 && L.yr > 0)) return { viewBox: "0 0 150 20", inner: `<text x="75" y="12" text-anchor="middle" font-size="5">Check the axis ranges (min must be less than max)</text>` };
+  const f2 = v => v.toFixed(2);
+  const ticks = a => {
+    const step = Math.abs(Number(a.step)) || 1, list = [];
+    if ((a.max - a.min) / step > 200) return list;
+    for (let v = Math.ceil(a.min / step - 1e-9) * step; v <= a.max + 1e-9; v += step) list.push(+v.toFixed(10));
+    return list;
+  };
+  const xs = ticks(X), ys = ticks(Y);
+  const x0 = X.min <= 0 && X.max >= 0 ? 0 : X.min, y0 = Y.min <= 0 && Y.max >= 0 ? 0 : Y.min;
+  const num = v => String(+v.toFixed(6)).replace("-", "−");
+  const clip = `gclip${graphSeq++}`;
+  const parts = [`<defs><clipPath id="${clip}"><rect x="${L.padL}" y="${L.padT}" width="${f2(L.plotW)}" height="${f2(L.plotH)}"/></clipPath>` +
+    `<marker id="${clip}a" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0 0 L6 3 L0 6 z"/></marker></defs>`];
+  if (b.grid) parts.push(`<g class="g-grid">${xs.map(v => `<line x1="${f2(sx(v))}" y1="${L.padT}" x2="${f2(sx(v))}" y2="${f2(L.padT + L.plotH)}"/>`).join("")}` +
+    `${ys.map(v => `<line x1="${L.padL}" y1="${f2(sy(v))}" x2="${f2(L.padL + L.plotW)}" y2="${f2(sy(v))}"/>`).join("")}</g>`);
+  if (b.kind === "histogram") parts.push(histogramBars(b, L, clip));
+  parts.push(`<line class="g-axis" x1="${L.padL - 2}" y1="${f2(sy(y0))}" x2="${f2(L.padL + L.plotW + 5)}" y2="${f2(sy(y0))}" marker-end="url(#${clip}a)"/>`,
+             `<line class="g-axis" x1="${f2(sx(x0))}" y1="${f2(L.padT + L.plotH + 2)}" x2="${f2(sx(x0))}" y2="${L.padT - 5}" marker-end="url(#${clip}a)"/>`);
+  if (b.numbers) {
+    const origin = x0 === 0 && y0 === 0;
+    parts.push(`<g font-size="3.3">${xs.filter(v => !(origin && v === 0)).map(v => `<text x="${f2(sx(v))}" y="${f2(sy(y0) + 4.3)}" text-anchor="middle">${num(v)}</text>`).join("")}` +
+      `${ys.filter(v => !(origin && v === 0)).map(v => `<text x="${f2(sx(x0) - 1.6)}" y="${f2(sy(v) + 1.2)}" text-anchor="end">${num(v)}</text>`).join("")}` +
+      `${origin ? `<text x="${f2(sx(0) - 1.6)}" y="${f2(sy(0) + 4.3)}" text-anchor="end" font-style="italic">O</text>` : ""}</g>`);
+  }
+  parts.push(`<g font-size="3.8" font-style="italic"><text x="${f2(L.padL + L.plotW + 6.5)}" y="${f2(sy(y0) + 1.3)}">${esc(X.label)}</text>` +
+    `<text x="${f2(sx(x0) + 1.8)}" y="${L.padT - 5.5}">${esc(Y.label)}</text></g>`);
+  for (const f of b.functions || []) {
+    let fn;
+    try { fn = compileExpr(f.expr); } catch { continue; }
+    const from = Math.max(X.min, f.from ?? X.min), to = Math.min(X.max, f.to ?? X.max), N = 600;
+    let d = "", pen = false, prevY = null;
+    for (let i = 0; i <= N && to > from; i++) {
+      const x = from + (to - from) * i / N, y = fn(x);
+      const ok = Number.isFinite(y) && Math.abs(y) < 1e6;
+      if (ok && pen && Math.abs(y - prevY) > L.yr * 2) pen = false;  // a jump across an asymptote
+      if (ok) { d += `${pen ? "L" : "M"}${f2(sx(x))} ${f2(clamp(sy(y), -2000, 2000))}`; pen = true; prevY = y; } else { pen = false; }
+    }
+    if (d) parts.push(`<path class="g-fn${f.dashed ? " dashed" : ""}" d="${d}" clip-path="url(#${clip})"/>`);
+  }
+  const pts = (b.points || []).filter(p => Number.isFinite(+p.x) && Number.isFinite(+p.y));
+  if (b.fit && pts.length >= 2) {  // least-squares line of best fit through the points
+    const n = pts.length, Sx = pts.reduce((a, p) => a + +p.x, 0), Sy = pts.reduce((a, p) => a + +p.y, 0);
+    const Sxx = pts.reduce((a, p) => a + p.x * p.x, 0), Sxy = pts.reduce((a, p) => a + p.x * p.y, 0), den = n * Sxx - Sx * Sx;
+    if (den) {
+      const m = (n * Sxy - Sx * Sy) / den, c = (Sy - m * Sx) / n;
+      parts.push(`<line class="g-fit" x1="${f2(sx(X.min))}" y1="${f2(sy(m * X.min + c))}" x2="${f2(sx(X.max))}" y2="${f2(sy(m * X.max + c))}" clip-path="url(#${clip})"/>`);
+    }
+  }
+  if (b.connect && pts.length > 1) {  // time series: join the points in x order
+    parts.push(`<path class="g-fn" d="${[...pts].sort((p, q) => p.x - q.x).map((p, i) => `${i ? "L" : "M"}${f2(sx(p.x))} ${f2(sy(p.y))}`).join("")}" clip-path="url(#${clip})"/>`);
+  }
+  (b.points || []).forEach((p, i) => {
+    if (!Number.isFinite(+p.x) || !Number.isFinite(+p.y)) return;
+    parts.push(`<circle class="g-pt${p.open ? " open" : ""}" cx="${f2(sx(p.x))}" cy="${f2(sy(p.y))}" r="1.1" data-pi="${i}"/>` +
+      (p.label ? `<text x="${f2(sx(p.x) + 1.8)}" y="${f2(sy(p.y) - 1.8)}" font-size="3.4">${esc(p.label)}</text>` : ""));
+  });
+  return { viewBox: `0 0 150 ${f2(L.H)}`, inner: parts.join("") };
+}
+
+
+// ---- statistics charts (General Mathematics)
+const parseNumbers = text => String(text || "").split(/[\s,;]+/).filter(Boolean).map(Number).filter(Number.isFinite);
+// Five-number summary as VCAA computes it: quartiles are medians of the halves (the median excluded when n is odd);
+// outliers lie more than 1.5 IQR beyond the quartiles, and whiskers stop at the most extreme values that are not outliers.
+function boxStats(b) {
+  const box = b.box || {}, data = parseNumbers(box.data).sort((p, q) => p - q);
+  if (data.length < 2) return { min: +box.min, q1: +box.q1, median: +box.median, q3: +box.q3, max: +box.max, outliers: [], n: 0 };
+  const median = arr => { const m = Math.floor(arr.length / 2); return arr.length % 2 ? arr[m] : (arr[m - 1] + arr[m]) / 2; };
+  const n = data.length, q1 = median(data.slice(0, Math.floor(n / 2))), q3 = median(data.slice(Math.ceil(n / 2)));
+  const lo = q1 - 1.5 * (q3 - q1), hi = q3 + 1.5 * (q3 - q1), inside = data.filter(v => v >= lo && v <= hi);
+  return { min: inside[0], q1, median: median(data), q3, max: inside.at(-1), outliers: data.filter(v => v < lo || v > hi), n };
+}
+// Bars are [start, start + width), [start + width, start + 2 width), ...; typed heights or counts from pasted data.
+function histCounts(b) {
+  const hist = b.hist || {}, start = Number(hist.start) || 0, width = Math.abs(Number(hist.width)) || 1, data = parseNumbers(hist.data);
+  if (!data.length) return { start, width, counts: String(hist.counts || "").split(/[\s,;]+/).filter(Boolean).map(v => Number(v) || 0) };
+  const counts = [];
+  for (const v of data) {
+    const i = Math.floor((v - start) / width + 1e-9);
+    if (i >= 0) counts[i] = (counts[i] || 0) + 1;
+  }
+  return { start, width, counts: Array.from(counts, c => c || 0) };
+}
+function histogramBars(b, L, clip) {
+  const { start, width, counts } = histCounts(b), f2 = v => v.toFixed(2), base = L.sy(Math.max(L.Y.min, 0));
+  return `<g class="g-bar" clip-path="url(#${clip})">${counts.map((c, i) => {
+    if (!c) return "";
+    const x1 = L.sx(start + i * width), x2 = L.sx(start + (i + 1) * width), top = L.sy(c);
+    return `<rect x="${f2(x1)}" y="${f2(top)}" width="${f2(x2 - x1)}" height="${f2(base - top)}"/>`;
+  }).join("")}</g>`;
+}
+function boxplotSvg(b) {
+  const X = b.x, padL = 8, plotW = 134, top = 4, gridH = 26, xr = X.max - X.min, base = top + gridH;
+  if (!(xr > 0)) return { viewBox: "0 0 150 20", inner: `<text x="75" y="12" text-anchor="middle" font-size="5">Check the scale (min must be less than max)</text>` };
+  const sx = v => padL + (v - X.min) / xr * plotW, f2 = v => v.toFixed(2);
+  const step = Math.abs(Number(X.step)) || 1, ticks = [];
+  if (xr / step <= 200) for (let v = Math.ceil(X.min / step - 1e-9) * step; v <= X.max + 1e-9; v += step) ticks.push(+v.toFixed(10));
+  const parts = [];
+  if (b.grid) parts.push(`<g class="g-grid">${ticks.map(v => `<line x1="${f2(sx(v))}" y1="${top}" x2="${f2(sx(v))}" y2="${base}"/>`).join("")}</g>`);
+  parts.push(`<line class="g-axis" x1="${padL}" y1="${base}" x2="${padL + plotW}" y2="${base}"/>`,
+    `<g class="g-axis">${ticks.map(v => `<line x1="${f2(sx(v))}" y1="${base}" x2="${f2(sx(v))}" y2="${base + 1.5}"/>`).join("")}</g>`);
+  if (b.numbers) parts.push(`<g font-size="3.3">${ticks.map(v => `<text x="${f2(sx(v))}" y="${base + 5.5}" text-anchor="middle">${String(+v.toFixed(6)).replace("-", "−")}</text>`).join("")}</g>`);
+  if (X.label) parts.push(`<text x="${padL + plotW / 2}" y="${base + 11}" text-anchor="middle" font-size="3.8" font-style="italic">${esc(X.label)}</text>`);
+  const st = boxStats(b), mid = top + gridH / 2, half = 5;
+  if (!b.box?.hidden && [st.min, st.q1, st.median, st.q3, st.max].every(Number.isFinite)) {
+    parts.push(`<g class="g-box"><line x1="${f2(sx(st.min))}" y1="${mid}" x2="${f2(sx(st.q1))}" y2="${mid}"/>` +
+      `<line x1="${f2(sx(st.q3))}" y1="${mid}" x2="${f2(sx(st.max))}" y2="${mid}"/>` +
+      `<rect x="${f2(sx(st.q1))}" y="${mid - half}" width="${f2(sx(st.q3) - sx(st.q1))}" height="${half * 2}"/>` +
+      `<line x1="${f2(sx(st.median))}" y1="${mid - half}" x2="${f2(sx(st.median))}" y2="${mid + half}"/></g>` +
+      st.outliers.map(v => `<circle class="g-pt open" cx="${f2(sx(v))}" cy="${mid}" r="1.1"/>`).join(""));
+  }
+  return { viewBox: `0 0 150 ${f2(base + (X.label ? 14 : 8))}`, inner: parts.join("") };
+}
+
+// ---- the side panel
+let graphEditing = null;
+function graphEls(b) { return [...document.querySelectorAll("#paper .graph[data-graph]")].filter(el => paperRefs[el.dataset.graph].obj === b); }
+function markEditingGraph() {
+  let found = false;
+  for (const el of document.querySelectorAll("#paper .graph[data-graph]")) {
+    const on = paperRefs[el.dataset.graph].obj === graphEditing;
+    el.classList.toggle("editing", on);
+    found ||= on;
+  }
+  return found;
+}
+function redrawGraph(b) {
+  for (const el of graphEls(b)) {
+    const g = graphSvg(b), svg = el.querySelector("svg");
+    el.style.width = `${clamp(Number(b.width) || 70, 25, 100)}%`;
+    svg.setAttribute("viewBox", g.viewBox);
+    svg.innerHTML = g.inner;
+  }
+  scheduleSave();
+  schedulePaginate();
+}
+function openGraphPanel(b) {
+  if (readOnly || !b) return;
+  graphEditing = b;
+  document.body.classList.add("graphing");
+  $("#graph-panel").hidden = false;
+  buildGraphPanel();
+  markEditingGraph();
+  fitPaper();
+  graphEls(b)[0]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+function closeGraphPanel() {
+  graphEditing = null;
+  document.body.classList.remove("graphing");
+  $("#graph-panel").hidden = true;
+  markEditingGraph();
+  fitPaper();
+}
+function buildGraphPanel() {
+  const b = graphEditing;
+  const redraw = () => redrawGraph(b);
+  const number = (obj, key, props = {}) => {
+    const el = h("input", { type: "number", step: "any", value: obj[key] ?? "", ...props,
+      oninput: () => {
+        if (el.value === "" && props.optional) { obj[key] = null; redraw(); }
+        else if (el.value !== "" && Number.isFinite(+el.value)) { obj[key] = +el.value; redraw(); }
+      } });
+    return el;
+  };
+  const text = (obj, key, props = {}) => {
+    const el = h("input", { value: obj[key] ?? "", ...props, oninput: () => { obj[key] = el.value; redraw(); props.after?.(el); } });
+    return el;
+  };
+  const check = (obj, key, label) => {
+    const el = h("input", { type: "checkbox", checked: !!obj[key], onchange: () => { obj[key] = el.checked; redraw(); } });
+    return h("label", { class: "gp-chk" }, el, label);
+  };
+  const remove = (arr, item) => h("button", { class: "danger", title: "Remove", onclick: () => { arr.splice(arr.indexOf(item), 1); redraw(); buildGraphPanel(); } }, "✕");
+  const axis = (a, name) => h("div", { class: "gp-row" }, h("b", { style: "width:14px" }, name),
+    number(a, "min", { title: "from" }), "to", number(a, "max", { title: "to" }), "step", number(a, "step", { min: 0, title: "grid step" }),
+    text(a, "label", { placeholder: "label", style: "width:70px" }));
+  const fnRow = f => {
+    const err = h("div", { class: "gp-err" });
+    const showErr = el => { try { if (el.value.trim()) compileExpr(el.value); err.textContent = ""; } catch (e) { err.textContent = e.message; } };
+    const expr = text(f, "expr", { class: "expr", placeholder: "e.g. x^2 - 2", after: showErr });
+    showErr(expr);
+    return [h("div", { class: "gp-row" }, "y =", expr, remove(b.functions, f)), err,
+      h("div", { class: "gp-row gp-note" }, "for x from", number(f, "from", { optional: true, placeholder: "min" }), "to", number(f, "to", { optional: true, placeholder: "max" }), check(f, "dashed", "dashed"))];
+  };
+  const ptRow = p => h("div", { class: "gp-row" }, "(", number(p, "x"), ",", number(p, "y"), ")",
+    text(p, "label", { placeholder: "label", style: "width:60px" }), check(p, "open", "open"), remove(b.points, p));
+  const kind = b.kind || "plot";
+  const typeSelect = h("select", { onchange: () => {
+    b.kind = typeSelect.value;
+    if (b.kind === "boxplot" && !b.box) { b.box = { data: "", min: 2, q1: 6, median: 9, q3: 13, max: 18, hidden: false }; Object.assign(b.x, { min: 0, max: 20, step: 2, label: "" }); }
+    if (b.kind === "histogram" && !b.hist) { b.hist = { data: "", start: 0, width: 2, counts: "2, 5, 8, 4, 1" }; Object.assign(b.x, { min: 0, max: 10, step: 2, label: "x" }); Object.assign(b.y, { min: 0, max: 10, step: 2, label: "Frequency" }); }
+    redraw(); buildGraphPanel();
+  } }, h("option", { value: "plot" }, "Graph: functions and points"), h("option", { value: "boxplot" }, "Box plot"), h("option", { value: "histogram" }, "Histogram"));
+  typeSelect.value = kind;
+  const area = (obj, key, placeholder, after) => {
+    const el = h("textarea", { rows: 3, value: obj[key] || "", placeholder, oninput: () => { obj[key] = el.value; redraw(); after?.(); } });
+    return el;
+  };
+  const sections = [];
+  if (kind === "plot") sections.push(
+    h("h4", {}, "Functions"), ...(b.functions || []).flatMap(fnRow),
+    h("button", { onclick: () => { b.functions.push({ expr: "", from: null, to: null, dashed: false }); buildGraphPanel(); $("#gp-body .expr:last-of-type")?.focus(); } }, "+ Function"),
+    h("p", { class: "gp-note" }, "Use ^ for powers, e.g. 3sin(2x), sqrt(x+1), e^(-x), 1/(x-1). Leave functions out for a blank grid students sketch on."),
+    h("h4", {}, "Points"), ...(b.points || []).map(ptRow),
+    h("div", { class: "gp-row" }, h("button", { onclick: () => { b.points.push({ x: 0, y: 0, label: "" }); redraw(); buildGraphPanel(); } }, "+ Point"),
+      check(b, "fit", "line of best fit"), check(b, "connect", "join points")),
+    h("p", { class: "gp-note" }, "Click the graph to place a point, drag a point to move it, double-click a point to remove it."));
+  if (kind === "histogram") sections.push(
+    h("h4", {}, "Bars"),
+    h("div", { class: "gp-row" }, "first bar starts at", number(b.hist, "start"), "bar width", number(b.hist, "width", { min: 0 })),
+    h("div", { class: "gp-row" }, "heights", text(b.hist, "counts", { class: "expr", placeholder: "e.g. 2, 5, 8, 4, 1" })),
+    h("p", { class: "gp-note" }, "Or paste raw data and the bars are counted for you (this overrides the heights):"),
+    area(b.hist, "data", "e.g. 1.2 3.4 2.2 5.0 …"));
+  if (kind === "boxplot") {
+    const summary = h("p", { class: "gp-note" });
+    const showSummary = () => {
+      const st = boxStats(b);
+      summary.textContent = st.n ? `From ${st.n} values: min ${st.min}, Q1 ${st.q1}, median ${st.median}, Q3 ${st.q3}, max ${st.max}` +
+        (st.outliers.length ? `; outliers ${st.outliers.join(", ")}` : "; no outliers") : "No data pasted, so the five-number summary below is used.";
+    };
+    showSummary();
+    sections.push(
+      h("h4", {}, "Data"), area(b.box, "data", "paste the data values…", showSummary), summary,
+      h("div", { class: "gp-row" }, ...["min", "q1", "median", "q3", "max"].flatMap(k => [k === "q1" ? "Q1" : k === "q3" ? "Q3" : k, number(b.box, k)])),
+      check(b.box, "hidden", "hide the box (a blank scale for students to draw on)"));
+  }
+  $("#gp-body").replaceChildren(
+    h("div", { class: "gp-row" }, "Type", typeSelect),
+    h("h4", {}, kind === "boxplot" ? "Scale" : "Axes"), axis(b.x, "x"), ...(kind === "boxplot" ? [] : [axis(b.y, "y")]),
+    h("div", { class: "gp-row" }, check(b, "grid", "grid"), check(b, "numbers", "numbers"),
+      "width", number(b, "width", { min: 25, max: 100, step: 5 }), "%"),
+    ...sections);
+}
+
+// ---------------------------------------------------------------- page actions
+function focusBlock(b) {
+  for (const el of $("#paper").querySelectorAll("[data-ref]")) {
+    const r = paperRefs[el.dataset.ref];
+    if (r.obj !== b && r.obj !== b.options && !b.rows?.includes(r.obj) && !b.boxes?.includes(r.obj)) continue;
+    if (b.type === "equation") el.click(); else el.focus();
+    return;
+  }
+}
+
+let lastAdd = {};
+function act(name, target, btn) {
+  const it = target?.obj;
+  // A double-click must not add the same thing twice (options excepted: those get clicked repeatedly on purpose).
+  if (name.startsWith("add-") && !["add-option", "add-row", "add-col", "add-abox"].includes(name)) {
+    if (lastAdd.name === name && lastAdd.obj === it && Date.now() - lastAdd.at < 500) return;
+    lastAdd = { name, obj: it, at: Date.now() };
+  }
+  // Leave any field being edited first. Otherwise the page won't redraw under the caret, the new block
+  // doesn't appear, and a second click adds another one.
+  if (document.activeElement?.closest?.("#paper [data-ref]")) document.activeElement.blur();
+  const addBlock = b => { it.blocks.push(b); changed(); return b; };
+  switch (name) {
+    case "semester": exam.semester = exam.semester === "2" ? "1" : "2"; return changed();
+    case "add-section": {
+      const s = newSection(String.fromCharCode(65 + exam.sections.length));
+      exam.sections.push(s); changed(); return focusBlock(s.questions[0].blocks[0]);
+    }
+    case "add-question": { const q = newItem(); it.questions.push(q); changed(); return focusBlock(q.blocks[0]); }
+    case "add-part": { const p = newItem(); it.parts.push(p); changed(); return focusBlock(p.blocks[0]); }
+    case "add-text": return focusBlock(addBlock({ type: "text", value: "" }));
+    case "add-choices":
+      if (isLeaf(it) && it.marks == null) it.marks = 1;  // multiple choice is usually worth 1 mark
+      return focusBlock(addBlock({ type: "choices", options: ["", "", "", ""], correct: null }));
+    case "new-page": it.new_page = !it.new_page; return changed();
+    case "option-kind": {
+      const i = Number(btn.dataset.i), kind = btn.dataset.kind;
+      if (kind === "image") return pickImage(src => { it.options[i] = { type: "image", value: src, width: 100 }; changed(); });
+      it.options[i] = { text: "", graph: { ...newGraph(), width: 100 }, table: { type: "table", header: false, rows: [["", ""], ["", ""]] } }[kind];
+      changed();
+      return kind === "graph" ? openGraphPanel(it.options[i]) : undefined;
+    }
+    case "options-graphs": it.options = it.options.map(o => typeof o === "string" ? { ...newGraph(), width: 100 } : o); return changed();
+    case "add-option": if (it.options.length < 8) it.options.push(""); return changed();
+    case "remove-option":
+      if (it.options.length > 2) it.options.pop();
+      if (it.correct >= it.options.length) it.correct = null;
+      return changed();
+    case "add-graph": { const g = addBlock(newGraph()); return openGraphPanel(g); }
+    case "edit-graph": return openGraphPanel(it);
+    case "add-table": return focusBlock(addBlock({ type: "table", header: true, rows: [["", "", ""], ["", "", ""], ["", "", ""]] }));
+    case "add-answer": return focusBlock(addBlock({ type: "answer", boxes: [{ label: "", units: "" }] }));
+    case "add-row": it.rows.push(it.rows[0] ? it.rows[0].map(() => "") : [""]); return changed();
+    case "remove-row": if (it.rows.length > 1) it.rows.pop(); return changed();
+    case "add-col": if (it.rows[0].length < 12) it.rows.forEach(r => r.push("")); return changed();
+    case "remove-col": if (it.rows[0].length > 1) it.rows.forEach(r => r.pop()); return changed();
+    case "toggle-header": it.header = !it.header; return changed();
+    case "add-abox": if (it.boxes.length < 4) it.boxes.push({ label: "", units: "" }); return changed();
+    case "remove-abox": if (it.boxes.length > 1) it.boxes.pop(); return changed();
+    case "correct": { const i = Number(btn.dataset.i); it.correct = it.correct === i ? null : i; return changed(); }
+    case "add-equation": return focusBlock(addBlock({ type: "equation", value: "" }));
+    case "add-lines": return addBlock({ type: "lines", n: 5 });
+    case "add-box": return addBlock({ type: "box", height_cm: 6 });
+    case "add-image": return pickImage(src => addBlock({ type: "image", value: src, width: 60 }));
+    case "replace-image": return pickImage(src => { it.value = src; changed(); });
+    case "del": {
+      const what = target.kind === "sec" ? `Section ${it.name} and all its questions` : target.kind === "item" ? "this question and everything in it" : "";
+      if (what && !confirm(`Delete ${what}?`)) return;
+      target.arr.splice(target.arr.indexOf(it), 1);
+      return changed();
+    }
+  }
+}
+
+
+// ---------------------------------------------------------------- school settings (branding)
+// Name, logo, cover wording, printed fonts/sizes and app colours. Anyone can read them; changing them needs
+// the admin PIN chosen on first run. The PIN is kept in memory only while this tab is open.
+const FONTS = [["Calibri, Carlito, Arial, sans-serif", "Calibri"], ["Arial, Helvetica, sans-serif", "Arial"],
+  ["'Segoe UI', Arial, sans-serif", "Segoe UI"], ["'Times New Roman', Times, serif", "Times New Roman"],
+  ["Georgia, serif", "Georgia"], ["Verdana, sans-serif", "Verdana"]];
+const SETTING_KEYS = ["school_name", "default_task", "instructions", "notice", "body_font", "body_size",
+  "school_name_size", "title_size", "line_spacing", "theme_colour", "accent_colour"];
+const JSON_HEADERS = { "Content-Type": "application/json" };
+let settings = { school_name: "Your School", default_task: "Written Examination", instructions: DEFAULT_INSTRUCTIONS, notice: PHONES,
+  body_font: FONTS[0][0], body_size: 11, school_name_size: 33, title_size: 25, line_spacing: 9,
+  theme_colour: "#8B0000", accent_colour: "#B8860B", pin_set: false, has_logo: false };
+let adminPin = "", logoVersion = Date.now();
+
+function applySettings() {
+  const root = document.documentElement.style;
+  root.setProperty("--red", settings.theme_colour);
+  root.setProperty("--gold", settings.accent_colour);
+  root.setProperty("--body-font", settings.body_font);
+  root.setProperty("--body-size", `${settings.body_size}pt`);
+  root.setProperty("--school-size", `${settings.school_name_size}pt`);
+  root.setProperty("--title-size", `${settings.title_size}pt`);
+  root.setProperty("--line-gap", `${settings.line_spacing}mm`);
+  const top = $("#top-logo");
+  top.hidden = !settings.has_logo;
+  if (settings.has_logo) top.src = `/school-logo?v=${logoVersion}`;
+  document.title = settings.school_name && settings.school_name !== "Your School" ? `Exam Assistant · ${settings.school_name}` : "Exam Assistant";
+}
+async function loadSettings() {
+  try { settings = { ...settings, ...(await api("/api/settings")) }; } catch { /* built-in defaults */ }
+  applySettings();
+}
+function brandingChanged() {
+  applySettings();
+  if (!$("#editor-view").hidden && exam) renderAll();
+}
+
+const schoolDialog = $("#school");
+function openSchoolSettings() {
+  $("#school-lock-err").textContent = $("#school-err").textContent = "";
+  const unlocked = !!adminPin, first = !settings.pin_set;
+  $("#school-lock").hidden = unlocked;
+  $("#school-edit").hidden = !unlocked;
+  if (unlocked) fillSchoolForm();
+  else {
+    $("#school-lock-msg").textContent = first
+      ? "First, choose an admin PIN (at least 4 characters). Anyone with it can change the school name, logo and cover wording, so share it only with the people who look after this app."
+      : "Enter the admin PIN to change the school's settings.";
+    $("#school-pin2-row").hidden = !first;
+    $("#school-unlock").textContent = first ? "Set PIN" : "Unlock";
+    $("#school-pin").value = $("#school-pin2").value = "";
+  }
+  if (!schoolDialog.open) schoolDialog.showModal();
+  (unlocked ? $("#st-school_name") : $("#school-pin")).focus();
+}
+async function unlockSchool() {
+  const pin = $("#school-pin").value, err = $("#school-lock-err");
+  try {
+    if (!settings.pin_set) {
+      if (pin !== $("#school-pin2").value) return (err.textContent = "The two PINs don't match.");
+      await api("/api/settings/pin", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ pin }) });
+      settings.pin_set = true;
+    } else {
+      await api("/api/settings/unlock", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ pin }) });
+    }
+    adminPin = pin;
+    openSchoolSettings();
+  } catch (e) {
+    err.textContent = e.message;
+  }
+}
+function fillSchoolForm() {
+  for (const key of SETTING_KEYS) $(`#st-${key}`).value = settings[key];
+  fillLogoPreview();
+}
+// Logo changes save straight away; they must not reset the rest of the form, which may hold unsaved edits.
+function fillLogoPreview() {
+  $("#st-logo-preview").hidden = $("#st-logo-remove").hidden = !settings.has_logo;
+  if (settings.has_logo) $("#st-logo-preview").src = `/school-logo?v=${logoVersion}`;
+  $("#st-logo").value = "";
+}
+async function adminCall(path, opts) {
+  try {
+    return await api(path, { ...opts, headers: { ...(opts.headers || {}), "X-Admin-PIN": adminPin } });
+  } catch (e) {
+    if (/PIN/.test(e.message)) adminPin = "";  // wrong or changed elsewhere: ask again next time
+    $("#school-err").textContent = e.message;
+    throw e;
+  }
+}
+async function saveSchool() {
+  const changes = {};
+  for (const key of SETTING_KEYS) {
+    const el = $(`#st-${key}`);
+    changes[key] = el.type === "number" ? Number(el.value) : el.value;
+  }
+  try {
+    settings = { ...settings, ...(await adminCall("/api/settings", { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(changes) })) };
+    brandingChanged();
+    schoolDialog.close();
+  } catch { /* message shown */ }
+}
+async function uploadLogo(file) {
+  try {
+    const blob = await (await fetch(await loadImage(file))).blob();  // shrinks large photos first
+    await adminCall("/api/settings/logo", { method: "PUT", headers: { "Content-Type": blob.type }, body: blob });
+    settings.has_logo = true;
+    logoVersion = Date.now();
+    fillLogoPreview();
+    brandingChanged();
+  } catch (e) {
+    $("#school-err").textContent = e.message;
+  }
+}
+async function removeLogo() {
+  try {
+    await adminCall("/api/settings/logo", { method: "DELETE" });
+    settings.has_logo = false;
+    fillLogoPreview();
+    brandingChanged();
+  } catch { /* message shown */ }
+}
+async function changePin() {
+  const next = prompt("New admin PIN (at least 4 characters):");
+  if (next == null) return;
+  try {
+    await adminCall("/api/settings/pin", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ pin: next, current: adminPin }) });
+    adminPin = next;
+    alert("Admin PIN changed.");
+  } catch { /* message shown */ }
+}
+$("#st-body_font").append(...FONTS.map(([value, name]) => h("option", { value }, name)));
+$("#school-btn").onclick = openSchoolSettings;
+$("#school-unlock").onclick = unlockSchool;
+$("#school-pin").onkeydown = $("#school-pin2").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); unlockSchool(); } };
+$("#school-cancel").onclick = $("#school-close").onclick = () => schoolDialog.close();
+$("#school-save").onclick = saveSchool;
+$("#st-logo").onchange = e => { if (e.target.files[0]) uploadLogo(e.target.files[0]); };
+$("#st-logo-remove").onclick = removeLogo;
+$("#st-change-pin").onclick = changePin;
+
+// ---------------------------------------------------------------- wiring
+$("#shelf-area").append(h("option", { value: "" }, "All learning areas"), ...LEARNING_AREAS.map(a => h("option", { value: a }, a)));
+$("#shelf-area").onchange = renderHome;
+let filterTimer = null;
+$("#home-filter").oninput = () => { clearTimeout(filterTimer); filterTimer = setTimeout(renderHome, 200); };
+$("#tab-mine").onclick = () => { tab = "mine"; renderHome(); };
+$("#tab-shelf").onclick = () => { tab = "shelf"; renderHome(); };
+$("#new-btn").onclick = newExam;
+$("#dup-btn").onclick = () => duplicate(uid);
+$("#undo-btn").onclick = undo;
+document.addEventListener("keydown", e => {
+  if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.key.toLowerCase() !== "z" || $("#editor-view").hidden) return;
+  if (e.target.closest?.("input, textarea, [contenteditable], math-field")) return;  // text fields keep their own undo
+  e.preventDefault();
+  undo();
+});
+$("#print-btn").onclick = () => { document.activeElement.blur?.(); renderPaper(); window.print(); };
+$("#back-btn").onclick = async () => {
+  clearTimeout(saveTimer);
+  await save();
+  if (!dirty) { setStatus(""); renderHome(); }  // a failed save keeps the teacher in the editor
+};
+$("#code").addEventListener("input", e => {
+  const c = normalise(e.target.value);
+  if (c === code) return;
+  code = c;
+  try { c ? localStorage.setItem("staffCode", c) : localStorage.removeItem("staffCode"); } catch {}
+  renderHome();
+});
+
+// Exam settings: the few cover choices that aren't text on the page.
+$("#s-area").append(h("option", { value: "" }, "Choose…"), ...LEARNING_AREAS.map(a => h("option", { value: a }, a)));
+$("#settings-btn").onclick = () => {
+  $("#s-area").value = exam.learning_area || "";
+  $("#s-year").value = exam.year_level || "";
+  $("#s-type").value = exam.assessment_type || "Exam";
+  $("#s-topic").value = exam.unit || "";
+  $("#s-subject").value = exam.subject || "";
+  $("#s-calc").value = exam.calculator || "none";
+  $("#s-teacher").checked = !!exam.show_teacher;
+  $("#s-shared").checked = !!exam.shared;
+  $("#settings").showModal();
+};
+for (const [id, key, prop] of [["#s-area", "learning_area", "value"], ["#s-year", "year_level", "value"], ["#s-type", "assessment_type", "value"], ["#s-topic", "unit", "value"], ["#s-subject", "subject", "value"], ["#s-calc", "calculator", "value"],
+  ["#s-teacher", "show_teacher", "checked"], ["#s-shared", "shared", "checked"]]) {
+  $(id).addEventListener(prop === "checked" ? "change" : "input", () => { exam[key] = $(id)[prop]; changed(); });
+}
+$("#s-reset").onclick = () => { exam.instructions = settings.instructions; changed(); };
+
+// Shrink the A4 preview to fit narrow screens (printing is always full size).
+function fitPaper() {
+  const wrap = $("#paper-wrap"), pad = getComputedStyle(wrap);
+  const room = wrap.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight);
+  $("#paper").style.zoom = Math.min(1, room / (210 * 96 / 25.4)).toFixed(3);
+  paginate();
+}
+window.addEventListener("resize", fitPaper);
+
+// ---------------------------------------------------------------- A4 pages on screen
+// Walk sections, questions and parts in order, the way the printer will, and start a new page before a
+// section, before anything marked New page, and before a question or part that won't fit. Each break is a
+// spacer: on screen a grey gap between pages, in print a forced page break at exactly the same place.
+// (Sub-parts ride with their part. A single question taller than a page still overflows by itself.)
+const PAGE_MM = 297 - 15 - 16;  // @page margins
+let paginateTimer = null;
+function schedulePaginate() { clearTimeout(paginateTimer); paginateTimer = setTimeout(paginate, 250); }
+function paginate() {
+  const paperEl = $("#paper");
+  paperEl.querySelectorAll(".pgap").forEach(g => g.remove());
+  const body = paperEl.querySelector(".sheet.body");
+  if (!body || !body.getClientRects().length) return;  // editor not showing
+  const zoom = parseFloat(paperEl.style.zoom) || 1;
+  const box = body.getBoundingClientRect();
+  const mm = box.width / 210, pageH = PAGE_MM * mm, GAP = 22;
+  const top0 = box.top + 15 * mm;
+  const cands = [...body.querySelectorAll(".sec, .qlist > .item, .qlist > .item > .plist > .item")];
+  const ys = cands.map(el => el.getBoundingClientRect().top - top0);
+  const endY = box.bottom - 15 * mm - top0;
+  const breaks = [];
+  let pageStart = 0;
+  cands.forEach((el, i) => {
+    const y = ys[i], next = i + 1 < ys.length ? ys[i + 1] : endY;
+    while (y - pageStart > pageH) pageStart += pageH;  // an oversized question overflowed by itself
+    if (y - pageStart < 1) return;
+    const forced = (el.classList.contains("sec") && i > 0) || el.classList.contains("newpage");
+    if (forced || next - pageStart > pageH) {
+      breaks.push({ el, y, pageStart, forced });
+      pageStart = y;
+    }
+  });
+  const px = v => `${v / zoom}px`;
+  breaks.forEach((b, n) => {
+    const gap = h("div", { class: b.forced ? "pgap" : "pgap brk" });
+    gap.style.height = px(Math.max(0, b.pageStart + pageH - b.y) + 31 * mm + GAP);
+    const band = h("div", { class: "band" }, h("span", {}, `Page ${n + 2}`));
+    gap.append(band);
+    b.el.before(gap);
+    const g = gap.getBoundingClientRect();
+    Object.assign(band.style, { left: px(box.left - g.left), width: px(box.width), bottom: px(15 * mm), height: px(GAP) });
+  });
+  const filler = h("div", { class: "pgap" });  // fill out the last page so it looks like a whole sheet
+  filler.style.height = px(Math.max(0, pageStart + pageH - endY));
+  body.append(filler);
+}
+document.fonts?.ready.then(paginate);
+
+// Editing on the paper itself.
+const paper = $("#paper");
+const refOf = el => el && el.dataset.ref !== undefined ? paperRefs[el.dataset.ref] : null;
+
+paper.addEventListener("focusin", e => {
+  const el = e.target.closest("[data-ref]"), r = refOf(el);
+  if (!r) return;
+  // Show the source while editing: $...$ maths, and the instructions' ## headings.
+  if (r.kind === "instr" || ((r.kind === "rich" || r.kind === "option") && String(r.obj[r.key] || "").includes("$"))) {
+    el.textContent = r.obj[r.key] || "";
+    getSelection().selectAllChildren(el);
+    getSelection().collapseToEnd();
+  }
+});
+paper.addEventListener("input", e => {
+  const el = e.target.closest("[data-ref]"), r = refOf(el);
+  if (!r) return;
+  if (r.kind === "equation") {
+    const mf = el.querySelector("math-field"), tx = el.querySelector("input.latex");
+    if (e.target === tx) mf.value = tx.value; else if (tx) tx.value = mf.value;
+    r.obj.value = e.target === tx ? tx.value : mf.value;
+  }
+  else if (r.kind === "number") { const d = el.innerText.replace(/\D/g, ""); r.obj[r.key] = d === "" ? null : Number(d); }
+  else r.obj[r.key] = el.innerText.replace(/\n$/, "");
+  updateTotals();
+  scheduleSave();
+  schedulePaginate();
+});
+paper.addEventListener("load", e => { if (e.target.tagName === "IMG") schedulePaginate(); }, true);
+paper.addEventListener("focusout", e => {
+  const el = e.target.closest("[data-ref]"), r = refOf(el);
+  if (!r || el.contains(e.relatedTarget)) return;
+  if (r.kind === "equation") return setTimeout(() => closeEquation(el), 150);
+  el.innerHTML = viewHtml(r);  // back to rendered maths / tidied numbers
+  schedulePaginate();
+  catchUp();
+});
+function catchUp() {
+  setTimeout(() => { if (paperStale && !paper.contains(document.activeElement?.closest?.("[data-ref]"))) renderPaper(); });
+}
+// The on-screen maths keyboard takes focus from the field, so the equation editor only closes once
+// focus has really left it AND the keyboard is down; otherwise the keyboard vanishes as it opens.
+function closeEquation(el) {
+  if (!el.isConnected || !el.querySelector("math-field") || el.contains(document.activeElement) || window.mathVirtualKeyboard?.visible) return;
+  el.innerHTML = viewHtml(refOf(el));
+  catchUp();
+}
+window.mathVirtualKeyboard?.addEventListener("geometrychange", () => {
+  if (!mathVirtualKeyboard.visible) setTimeout(() => paper.querySelectorAll(".eq[data-ref]").forEach(closeEquation), 150);
+});
+paper.addEventListener("keydown", e => {
+  const r = refOf(e.target.closest("[data-ref]"));
+  if (r && !["rich", "instr"].includes(r.kind) && e.key === "Enter") { e.preventDefault(); e.target.blur(); }
+});
+paper.addEventListener("click", e => {
+  const btn = e.target.closest("[data-act]");
+  if (btn) {
+    const nodeEl = btn.closest("[data-node]");
+    return act(btn.dataset.act, nodeEl && { ...paperRefs[nodeEl.dataset.node], kind: nodeEl.dataset.kind }, btn);
+  }
+  const graph = e.target.closest(".graph[data-graph]");
+  if (graph) { if (!graph.classList.contains("editing")) openGraphPanel(paperRefs[graph.dataset.graph].obj); return; }
+  const eq = e.target.closest(".eq[data-ref]");
+  if (!eq || eq.querySelector("math-field")) return;
+  const value = refOf(eq).obj.value || "";
+  const mf = h("math-field", {}, value);
+  const latex = h("input", { class: "latex", value, placeholder: "or type LaTeX here, e.g. \\frac{1}{2}mv^2" });
+  latex.spellcheck = false;
+  eq.replaceChildren(mf, latex);
+  mf.focus();
+  mf.executeCommand("moveToMathfieldEnd");  // carry on typing where the equation ends
+});
+
+
+// Graph editing on the page: click a graph to edit it; while editing, click to place points and drag them.
+$("#gp-close").onclick = closeGraphPanel;
+let lastPointTap = {};
+function graphPoint(svg, b, e) {
+  const L = graphLayout(b), m = svg.getScreenCTM().inverse();
+  const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(m);
+  const snap = (v, a) => { const q = (Math.abs(Number(a.step)) || 1) / 4; return +(Math.round(v / q) * q).toFixed(6); };
+  return { x: snap(clamp(L.ix(pt.x), b.x.min, b.x.max), b.x), y: snap(clamp(L.iy(pt.y), b.y.min, b.y.max), b.y) };
+}
+paper.addEventListener("pointerdown", e => {
+  const svg = e.target.closest?.(".graph.editing svg");
+  if (!svg || !graphEditing || (graphEditing.kind || "plot") !== "plot") return;
+  e.preventDefault();
+  const b = graphEditing;
+  let p = b.points[e.target.dataset?.pi];
+  // Double-tap a point to remove it (the browser's own dblclick doesn't fire once pointerdown is handled here).
+  if (p && lastPointTap.p === p && Date.now() - lastPointTap.at < 450) {
+    b.points.splice(b.points.indexOf(p), 1);
+    lastPointTap = {};
+    redrawGraph(b);
+    return buildGraphPanel();
+  }
+  if (p) lastPointTap = { p, at: Date.now() };  // only taps on an existing, undragged point count towards a double-tap
+  else { p = { ...graphPoint(svg, b, e), label: "" }; b.points.push(p); lastPointTap = {}; redrawGraph(b); }
+  svg.setPointerCapture(e.pointerId);
+  const move = ev => { lastPointTap = {}; Object.assign(p, graphPoint(svg, b, ev)); redrawGraph(b); };
+  const up = () => { svg.removeEventListener("pointermove", move); svg.removeEventListener("pointerup", up); buildGraphPanel(); };
+  svg.addEventListener("pointermove", move);
+  svg.addEventListener("pointerup", up);
+});
+
+
+// ---------------------------------------------------------------- block palette
+// Drag a block onto a question (or a section's empty space), or click it to add it to the question last pointed at.
+const PALETTE = [["text", "✎", "Text"], ["choices", "☑", "Multiple choice"], ["graph", "📈", "Graph"], ["table", "▦", "Table"],
+  ["answer", "▭", "Answer box"], ["equation", "∑", "Equation"], ["image", "🖼", "Image"], ["lines", "≡", "Lines"], ["box", "□", "Working box"]];
+let lastItemObj = null;
+function addFromPalette(type, itemEl) {
+  const items = [...document.querySelectorAll('#paper [data-kind="item"]')];
+  const el = itemEl || items.find(i => paperRefs[i.dataset.node]?.obj === lastItemObj) || items[0];
+  if (!el) {  // no questions yet: start one in the first section
+    const sec = exam.sections[0] || (exam.sections.push(newSection("A")), exam.sections[0]);
+    const q = newItem();
+    sec.questions.push(q);
+    lastItemObj = q;
+    changed();
+    return addFromPalette(type);
+  }
+  const target = { ...paperRefs[el.dataset.node], kind: "item" };
+  lastItemObj = target.obj;
+  act(`add-${type}`, target);
+}
+$("#palette").append(...PALETTE.map(([type, icon, name]) => {
+  const btn = h("button", { class: "pal", draggable: "true", "data-block": type,
+    title: `${name}: drag it onto a question, or click to add it to the question you last pointed at`,
+    onclick: () => addFromPalette(type) }, icon, h("span", {}, name));
+  btn.addEventListener("dragstart", e => { e.dataTransfer.setData("text/x-exam-block", type); e.dataTransfer.effectAllowed = "copy"; });
+  return btn;
+}));
+
+// Hover controls: the innermost question/part and block under the pointer show theirs. Controls sit
+// beside what they act on (margin pill, block corner), so reaching them never crosses another item;
+// gaps between items keep the current controls.
+let hot = [], hotTimer = null;
+function setHot(now) {
+  clearTimeout(hotTimer);
+  hot.forEach(el => el.classList.remove("hot"));
+  now.forEach(el => el.classList.add("hot"));
+  hot = now;
+  const item = now.find(el => el.dataset.kind === "item");
+  if (item) lastItemObj = paperRefs[item.dataset.node]?.obj;
+}
+paper.addEventListener("mouseover", e => {
+  clearTimeout(hotTimer);
+  if (e.target.closest(".ctl")) return;  // on a control: keep it
+  const now = [e.target.closest('[data-kind="item"]'), e.target.closest('[data-kind="block"]')].filter(Boolean);
+  if (!now.length) return;
+  if (now.length !== hot.length || now.some((el, i) => el !== hot[i])) setHot(now);
+});
+paper.addEventListener("mouseleave", () => { clearTimeout(hotTimer); hotTimer = setTimeout(() => setHot([]), 300); });
+
+// Drag the gold grip to resize a working box, answer lines or an image.
+paper.addEventListener("pointerdown", e => {
+  const grip = e.target.closest("[data-grip]");
+  if (!grip) return;
+  e.preventDefault();
+  document.activeElement.blur?.();
+  const blk = grip.closest("[data-node]"), b = paperRefs[blk.dataset.node].obj, box = grip.parentElement;
+  const mm = paper.querySelector(".sheet").getBoundingClientRect().width / 210;  // screen px per mm, zoom included
+  const x0 = e.clientX, y0 = e.clientY;
+  const start = { box: Number(b.height_cm) || 6, lines: Number(b.n) || 5, image: Number(b.width) || 60 }[b.type];
+  const tip = h("span", { class: "tip" });
+  box.append(tip);
+  blk.classList.add("resizing");
+  grip.setPointerCapture(e.pointerId);
+  const move = ev => {
+    if (b.type === "box") {
+      b.height_cm = clamp(Math.round((start * 10 + (ev.clientY - y0) / mm) / 5) / 2, 1, 25);
+      box.style.height = `${b.height_cm}cm`;
+      tip.textContent = `${b.height_cm} cm`;
+    } else if (b.type === "lines") {
+      b.n = clamp(Math.round(start + (ev.clientY - y0) / mm / (Number(settings.line_spacing) || 9)), 1, 30);
+      box.firstElementChild.innerHTML = "<div></div>".repeat(b.n);
+      tip.textContent = `${b.n} lines`;
+    } else {
+      const width = box.parentElement.getBoundingClientRect().width;  // image is centred, so the corner moves half as far
+      b.width = clamp(Math.round(start + (ev.clientX - x0) * 2 / width * 100), 10, 100);
+      box.style.width = `${b.width}%`;
+      tip.textContent = `${b.width}%`;
+    }
+  };
+  const up = () => {
+    grip.removeEventListener("pointermove", move);
+    grip.removeEventListener("pointerup", up);
+    changed();
+  };
+  grip.addEventListener("pointermove", move);
+  grip.addEventListener("pointerup", up);
+});
+
+// Drop an image file from the desktop onto a question.
+const clearDropTargets = () => document.querySelectorAll(".drop-target").forEach(el => el.classList.remove("drop-target"));
+paper.addEventListener("dragover", e => {
+  if (readOnly) return;
+  const types = [...e.dataTransfer.types], fromPalette = types.includes("text/x-exam-block");
+  const target = e.target.closest('[data-kind="item"]') || (fromPalette && e.target.closest('[data-kind="sec"]'));
+  if (!target || !(fromPalette || types.includes("Files"))) return;
+  e.preventDefault();
+  if (fromPalette && !target.classList.contains("drop-target")) { clearDropTargets(); target.classList.add("drop-target"); }
+});
+paper.addEventListener("dragleave", e => { if (!paper.contains(e.relatedTarget)) clearDropTargets(); });
+document.addEventListener("dragend", clearDropTargets);
+paper.addEventListener("drop", async e => {
+  const blockType = e.dataTransfer.getData("text/x-exam-block");
+  if (blockType && !readOnly) {
+    e.preventDefault();
+    clearDropTargets();
+    const itemEl = e.target.closest('[data-kind="item"]'), secEl = e.target.closest('[data-kind="sec"]');
+    if (itemEl) return addFromPalette(blockType, itemEl);
+    if (secEl) {  // dropped in a section's empty space: a new question holding the block
+      const sec = paperRefs[secEl.dataset.node].obj, q = newItem();
+      sec.questions.push(q);
+      lastItemObj = q;
+      changed();
+      return addFromPalette(blockType);
+    }
+    return;
+  }
+  const item = e.target.closest('[data-kind="item"]');
+  const file = item && !readOnly && [...e.dataTransfer.files].find(f => f.type.startsWith("image/"));
+  if (!file) return;
+  e.preventDefault();
+  try { paperRefs[item.dataset.node].obj.blocks.push({ type: "image", value: await loadImage(file), width: 60 }); changed(); }
+  catch (err) { alert(err.message); }
+});
+
+try { code = normalise(localStorage.getItem("staffCode")); } catch {}
+$("#code").value = code;
+fillSubjects([]);
+const fromHash = location.hash.match(/^#exam=([a-z0-9-]+)$/);
+loadSettings().then(() => { if (fromHash && code) openExam(fromHash[1]); else renderHome(); });
+</script>
+</body>
+</html>

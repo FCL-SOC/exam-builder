@@ -1,0 +1,9 @@
+# User data: exams and backups. Never commit, and never `git clean -xdf` on the server.
+data/
+
+# Portable Python (downloaded by setup.bat)
+python/
+py_embed.zip
+
+__pycache__/
+*.pyc
