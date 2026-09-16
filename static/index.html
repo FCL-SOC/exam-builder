@@ -78,7 +78,7 @@
      paginate() puts one at the top of each page and alternates the side, so a double-sided print keeps it
      against the spine. It stands in the page margin, so the text column keeps its full width. */
   .dnwa { position: relative; height: 0; }
-  .dnw { position: absolute; top: 0; height: 266mm; width: 15mm; background: #404040; color: #fff;
+  .dnw { position: absolute; top: 0; height: 266mm; width: 13mm; background: #404040; color: #fff;
          writing-mode: vertical-rl; font: 8pt Arial, sans-serif;
          display: flex; align-items: center; justify-content: center;
          print-color-adjust: exact; -webkit-print-color-adjust: exact; }
@@ -303,10 +303,13 @@
      AND lets us alternate: a left-hand page carries it on its right edge and vice versa, so it always falls by
      the spine. paginate() switches the whole sheet off by setting media="not all" when the exam turns it off. -->
 <style id="nowrite" media="print">
+  /* The margin box fills its margin, so the strip would touch the text. Its own margin is the only thing
+     Chrome honours here (width and background-clip are ignored): 2mm on the inner side keeps the text clear. */
   @page :left  { @right-middle { content: "Do not write in this area."; background: #404040; color: #fff;
-                   writing-mode: vertical-rl; font: 8pt Arial, sans-serif; padding: 10mm 1mm; } }
+                   writing-mode: vertical-rl; font: 8pt Arial, sans-serif; padding: 10mm 1mm; margin-left: 2mm; } }
   @page :right { @left-middle  { content: "Do not write in this area."; background: #404040; color: #fff;
-                   writing-mode: vertical-rl; font: 8pt Arial, sans-serif; padding: 10mm 1mm; transform: rotate(180deg); } }
+                   writing-mode: vertical-rl; font: 8pt Arial, sans-serif; padding: 10mm 1mm; margin-right: 2mm;
+                   transform: rotate(180deg); } }
   @page :first { @right-middle { content: none; } @left-middle { content: none; } }  /* never on the cover */
 </style>
 </head>
