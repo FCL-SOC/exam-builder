@@ -744,22 +744,41 @@ function sortable(el, arr, group, handle) {
     // page jump under the pointer, and a drop into another section can land back where it started.
     onStart: e => {
       if (group !== "questions" && group !== "sections") return;
-      const before = e.item.getBoundingClientRect().top;
+      const wrap = $("#paper-wrap"), top = e.item.getBoundingClientRect().top;
+      const height = wrap.scrollHeight, pad = parseFloat(getComputedStyle(wrap).paddingBottom) || 0;
       $("#paper").querySelectorAll(".pgap").forEach(g => g.remove());
       $("#paper").classList.add(`folding-${group}`);
-      // Folding what's above would slide the dragged item away from the pointer; pad the top to hold it still.
-      $("#paper-wrap").style.paddingTop = `${20 + before - e.item.getBoundingClientRect().top}px`;
+      // Folding makes the page far shorter than where the teacher has scrolled to, and the browser would clamp
+      // the scroll and leap up. Keep the old height with padding, then scroll so the item stays under the pointer.
+      wrap.style.paddingBottom = `${pad + Math.max(0, height - wrap.scrollHeight)}px`;
+      wrap.scrollTop += e.item.getBoundingClientRect().top - top;
     },
     onEnd: e => {
-      $("#paper").classList.remove("folding-questions", "folding-sections");
-      $("#paper-wrap").style.paddingTop = "";
+      const wrap = $("#paper-wrap"), folded = $("#paper").matches(".folding-questions, .folding-sections");
+      if (folded) {
+        const top = e.item.getBoundingClientRect().top;
+        $("#paper").classList.remove("folding-questions", "folding-sections");
+        wrap.scrollTop += e.item.getBoundingClientRect().top - top;  // unfolding pushes the item down: follow it
+        wrap.style.paddingBottom = "";
+      }
+      const moved = e.from._arr[e.oldDraggableIndex], top = e.item.getBoundingClientRect().top;
       // Draggable indexes count only the draggable items, not the page-gap spacers between them.
-      if (e.from === e.to && e.oldDraggableIndex === e.newDraggableIndex) return;
-      const [moved] = e.from._arr.splice(e.oldDraggableIndex, 1);
+      if (e.from === e.to && e.oldDraggableIndex === e.newDraggableIndex) {
+        if (folded) { paginate(); keepInView(moved, top); }  // the drag took the page gaps out: put them back
+        return;
+      }
+      e.from._arr.splice(e.oldDraggableIndex, 1);
       e.to._arr.splice(e.newDraggableIndex, 0, moved);
-      setTimeout(changed);
+      setTimeout(() => { changed(); keepInView(moved, top); });
     },
   });
+}
+
+// After a drop the paper is rebuilt and re-paginated, which moves things. Scroll so the item the teacher
+// just put down is back where they left it on screen.
+function keepInView(obj, top) {
+  const el = [...$("#paper").querySelectorAll("[data-node]")].find(n => paperRefs[n.dataset.node]?.obj === obj);
+  if (el) $("#paper-wrap").scrollTop += el.getBoundingClientRect().top - top;
 }
 
 function pickImage(done) {
@@ -885,10 +904,12 @@ function renderPaper() {
   const body = `<section class="sheet body"><div class="seclist"${list(ex.sections, "sections", ".h-sec")}>${sections}</div>
     ${ed ? `<button class="add" data-act="add-section">+ Section</button>` : ""}</section>`;
 
-  const paper = $("#paper");
+  // Rebuilding empties the paper for a moment, which can clamp the scroll just as paginate() can.
+  const paper = $("#paper"), wrap = $("#paper-wrap"), keepTop = wrap.scrollTop;
   paper.innerHTML = cover + body + extra;
   if (graphEditing && !markEditingGraph()) closeGraphPanel();  // its graph was deleted or undone
   paginate();
+  wrap.scrollTop = keepTop;
   if (ed) for (const el of paper.querySelectorAll("[data-arr]")) {
     const r = paperRefs[el.dataset.arr];
     sortable(el, r.arr, r.group, r.handle);
@@ -1651,7 +1672,9 @@ const PAGE_MM = 297 - 15 - 16;  // @page margins
 let paginateTimer = null;
 function schedulePaginate() { clearTimeout(paginateTimer); paginateTimer = setTimeout(paginate, 250); }
 function paginate() {
-  const paperEl = $("#paper");
+  // Taking the gaps out shortens the page for a moment. Scrolled near the end, the browser clamps the
+  // scroll position and it stays clamped once the gaps are back, so note it first and restore it below.
+  const paperEl = $("#paper"), wrap = $("#paper-wrap"), keepTop = wrap.scrollTop;
   paperEl.querySelectorAll(".pgap, .dnwa").forEach(g => g.remove());
   const body = paperEl.querySelector(".sheet.body");
   if (!body || !body.getClientRects().length) return;  // editor not showing
@@ -1687,6 +1710,7 @@ function paginate() {
   const filler = h("div", { class: "pgap" });  // fill out the last page so it looks like a whole sheet
   filler.style.height = px(Math.max(0, pageStart + pageH - endY));
   body.append(filler);
+  wrap.scrollTop = keepTop;
 
   // One "do not write in this area" strip per page. The cover is page 1, so the body starts at page 2:
   // even pages carry it on the right, odd pages on the left, which puts it by the spine either way.
