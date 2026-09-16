@@ -148,6 +148,17 @@
   .ans { display: flex; flex-wrap: wrap; gap: 3mm 8mm; margin: 2mm 0; align-items: center; }
   .ans .abx { display: inline-flex; align-items: center; gap: 2mm; }
   .ans .abox { display: inline-flex; justify-content: flex-end; align-items: flex-end; border: 1px solid #000; height: 9mm; width: 42mm; padding: 0 1.5mm 1mm; }
+  /* Block alignment (the ⇔ button). Tables, images, graphs and equations start centred, text and answer boxes left.
+     A table or a sized image is a block box, so it takes auto margins rather than text-align. */
+  .al-l > .tbl, .al-l > .imgbox, .al-l > .graph { margin-left: 0; margin-right: auto; }
+  .al-c > .tbl, .al-c > .imgbox, .al-c > .graph { margin-left: auto; margin-right: auto; }
+  .al-r > .tbl, .al-r > .imgbox, .al-r > .graph { margin-left: auto; margin-right: 0; }
+  .al-l > .txt, .al-l > .eq { text-align: left; }
+  .al-c > .txt, .al-c > .eq { text-align: center; }
+  .al-r > .txt, .al-r > .eq { text-align: right; }
+  .al-l > .ans { justify-content: flex-start; }
+  .al-c > .ans { justify-content: center; }
+  .al-r > .ans { justify-content: flex-end; }
   .end { text-align: center; font-weight: 700; margin-top: 8mm; }
   .sec-head:has(.desc:not(.ed):empty) .sep { display: none; }  /* read-only view */
   /* The questions sheet is split into A4 pages on screen (see paginate()); print breaks at the same places. */
@@ -929,9 +940,15 @@ function blockInner(b, grips = true) {
   return inner;
 }
 
+// Which blocks can be aligned, and where each one starts. Lines and working boxes fill the width, so they can't.
+const ALIGN_START = { table: "c", image: "c", graph: "c", equation: "c", text: "l", answer: "l" };
+const ALIGN_GLYPH = { l: "⇤", c: "⇔", r: "⇥" }, ALIGN_NAME = { l: "left", c: "centre", r: "right" };
+const alignOf = b => b.align || ALIGN_START[b.type] || "l";
+
 function blockHtml(b, arr) {
   const ed = !readOnly, inner = blockInner(b);
   const ctl = ed ? `<span class="bctl ctl"><span class="handle h-block" title="Drag to move">⠿</span>` +
+    `${b.type in ALIGN_START ? `<button data-act="align" title="Aligned ${ALIGN_NAME[alignOf(b)]} — click for the next">${ALIGN_GLYPH[alignOf(b)]}</button>` : ""}` +
     `${b.type === "image" ? `<button data-act="replace-image">Replace</button>` : ""}` +
     `${b.type === "choices" ? `<button data-act="options-graphs" title="Make every text option a graph (laid out 2 × 2)">All graphs</button><button data-act="add-option" title="Add an option">+ Option</button><button data-act="remove-option" title="Remove the last option">− Option</button>` : ""}` +
     `${b.type === "graph" ? `<button data-act="edit-graph">Edit graph</button>` : ""}` +
@@ -939,7 +956,7 @@ function blockHtml(b, arr) {
       `<button data-act="shade-row" title="Shade the row of the cell you last clicked">Shade row</button><button data-act="shade-col" title="Shade the column of the cell you last clicked">Shade column</button>` : ""}` +
     `${b.type === "answer" ? `<button data-act="add-abox" title="Another box beside this one">+ Box</button><button data-act="remove-abox">− Box</button>` : ""}` +
     `<button data-act="del" title="Remove">✕</button></span>` : "";
-  return `<div class="blk"${node(b, arr, "block")}>${ctl}${inner}</div>`;
+  return `<div class="blk al-${alignOf(b)}"${node(b, arr, "block")}>${ctl}${inner}</div>`;
 }
 
 
@@ -1328,6 +1345,7 @@ function act(name, target, btn) {
       it.shade_cols = (it.shade_cols || []).filter(i => i < it.rows[0].length);
       return changed();
     case "toggle-header": it.header = !it.header; return changed();
+    case "align": it.align = { l: "c", c: "r", r: "l" }[alignOf(it)]; return changed();
     case "shade-row": it.shade_rows = flip(it.shade_rows, clamp(tblCell.r, 0, it.rows.length - 1)); return changed();
     case "shade-col": it.shade_cols = flip(it.shade_cols, clamp(tblCell.c, 0, it.rows[0].length - 1)); return changed();
     case "add-abox": if (it.boxes.length < 4) it.boxes.push({ label: "", units: "" }); return changed();
