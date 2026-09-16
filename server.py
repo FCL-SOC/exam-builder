@@ -17,7 +17,6 @@ changes need the admin PIN chosen on first run.
 
 import hashlib
 import hmac
-import importer
 import json
 import logging
 import os
@@ -34,6 +33,15 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parent
+
+# The portable Python that setup.bat downloads is the embeddable build, whose python311._pth
+# replaces the usual path setup and leaves this folder off sys.path — so "import importer"
+# fails there even though the file sits right here. Put our own folder on the path first.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import importer  # noqa: E402  (after the sys.path line above, on purpose)
+
 STATIC = ROOT / "static"
 DATA = ROOT / "data"
 MAX_BODY = 50 * 1024 * 1024  # images are inlined as data URIs
