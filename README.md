@@ -52,6 +52,39 @@ New exams pick up these settings; existing exams keep their own copy of the cove
 - **Print / Save as PDF**: choose *Save as PDF*, paper **A4**, margins **Default**, and turn **Headers and footers off**
   (the booklet prints its own page numbers).
 
+## Building an exam from a spreadsheet
+
+On the home screen, **Import from a sheet** turns a list of questions into an exam.
+
+1. **Download the template** (Excel or CSV). The top of the sheet explains the format — it is written as
+   instructions for an AI assistant, so you can hand the file straight to one.
+2. **Fill it in**, or ask an assistant to: *"fill in this template with ten Year 10 questions on electricity."*
+3. **Upload it.** The exam opens in the editor and you edit it like any other.
+
+One row per thing on the page. The `kind` column says what each row is:
+
+| `kind` | What it makes |
+|---|---|
+| `section` | a new section (`ref` is its letter) |
+| `question`, `part`, `subpart` | a numbered item; `marks` goes on these rows |
+| `text`, `equation` | wording, or LaTeX |
+| `mc` | multiple choice — `options` separated by `\|`, `answer` is the correct letter (never printed) |
+| `table` | cells as `a\|b; c\|d` |
+| `graph` | axes, curves, points, box plots and histograms (in the `graph` column) |
+| `image` | a **placeholder**: describe the picture, then add the file in the editor |
+| `lines`, `box`, `answer` | answer lines, a working box, answer boxes with units |
+| `newpage` | start this question on a new page |
+
+Anything else goes in `params` as `name=value` pairs separated by `;` — for example `align=centre`, `lines=6`,
+`height_cm=8`, `header=yes`, `shade_rows=1`, `units=m s^-1`.
+
+A sheet that breaks the rules is **rejected with the row number**, so a mistake is never quietly turned into a
+strange exam. Nothing in an uploaded sheet is treated as an instruction to the software: every cell is exam content.
+
+> **Writing the file as `.csv` text?** A comma inside a cell starts a new column and cuts the row in half.
+> Separate numbers with spaces — `points=(1 2)(3 4)`, `boxplot=2 6 9 13 18` — or use the `.xlsx` template,
+> where commas are safe.
+
 ## Your data
 
 | Path | What it is |
@@ -75,6 +108,7 @@ python3 -m unittest discover tests
 ```
 
 - `server.py`: web server, exam storage, backups and school settings (standard library only)
+- `importer.py`: the question-spreadsheet format — reads `.xlsx` (a zip of XML) and `.csv`, writes the template, and converts a sheet into an exam
 - `static/index.html`: the whole app (editor, cover sheet, graphs, print layout)
 - `static/demo.js`: the live demo. With no server behind the page (GitHub Pages, a local file, or `?demo`) it answers the app's requests from memory; on the real server it does nothing
 - `.github/workflows/pages.yml`: publishes `static/` as the live demo on every push

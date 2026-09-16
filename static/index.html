@@ -42,6 +42,9 @@
 
   /* ---------- home ---------- */
   #home { flex: 1; overflow: auto; padding: 24px; }
+  #import-box { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; margin-bottom: 18px; background: #fff; }
+  #import-box p { margin: 0 0 8px; }
+  #import-box .bad { color: var(--red); font-weight: 600; }
   .home-inner { max-width: 900px; margin: 0 auto; }
   .tabs { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
   .tabs button.on { background: var(--red); color: #fff; border-color: var(--red); }
@@ -119,6 +122,9 @@
   .eq { text-align: center; margin: 2mm 0; font-size: 12pt; }
   .imgbox { margin: 2mm auto; max-width: 100%; }
   .imgbox .img { display: block; width: 100%; }
+  /* An imported picture that hasn't been added yet: the description, on screen only. */
+  .img-todo { display: flex; align-items: center; justify-content: center; min-height: 20mm; padding: 4mm;
+              border: 1.5px dashed #c8b89a; border-radius: 4px; color: #8a7a5a; font-style: italic; text-align: center; }
   .ln > div { border-bottom: 1px solid #000; height: var(--line-gap); }
   .box { border: 1px solid #000; margin: 2mm 0; }
   .mc { display: grid; gap: 1.5mm; margin: 2mm 0 1mm; }  /* one option per row */
@@ -285,6 +291,7 @@
     .sec-head:has(.desc:empty) .sep, .unitwrap:has(.unit:empty) { display: none; }
     #paper { zoom: 1 !important; }
     .mcl.is-correct { background: none; color: #000; }  /* the answer key never prints */
+    .img-todo { display: none !important; }  /* a picture that was never added leaves a gap, not a note */
     .pgap { display: none; }
     #graph-panel, #palette { display: none !important; }
     .pgap.brk { display: block; height: 0 !important; break-before: page; }
@@ -326,7 +333,19 @@
         <select id="shelf-area" hidden></select>
         <input id="home-filter" type="search" placeholder="Filter by topic, type, subject or year" style="min-width: 260px">
         <span class="grow"></span>
+        <button id="import-btn">Import from a sheet</button>
         <button id="new-btn" class="primary">+ New exam</button>
+      </div>
+      <div id="import-box" hidden>
+        <p><b>Build an exam from a spreadsheet.</b> Download the template, fill it in (or ask an AI assistant to —
+          the instructions it needs are written at the top of the sheet), then upload it here.</p>
+        <p>
+          <a href="/import-template.xlsx" download>Download the template (Excel)</a> ·
+          <a href="/import-template.csv" download>as CSV</a>
+          <input id="import-file" type="file" accept=".xlsx,.csv,text/csv" hidden>
+          <button id="import-pick">Choose a filled-in sheet…</button>
+        </p>
+        <div id="import-msg"></div>
       </div>
       <div id="home-list"></div>
       <p class="note">Your staff code identifies you; it is not a password. Exams are private to your code
@@ -901,8 +920,13 @@ function blockInner(b, grips = true) {
     case "text": inner = editable("div", "txt", b, "value", "rich", "Type here…"); break;
     case "equation": inner = editable("div", "eq", b, "value", "equation", "Click to add an equation"); break;
     case "image":
+      // An imported sheet describes the picture instead of carrying it, so show the description
+      // until the teacher uses Replace. The placeholder is screen-only: it never prints.
       inner = String(b.value || "").startsWith("data:image/")
-        ? `<div class="imgbox" style="width:${clamp(Number(b.width) || 60, 10, 100)}%"><img class="img" src="${esc(b.value)}" alt="">${grip}</div>` : "";
+        ? `<div class="imgbox" style="width:${clamp(Number(b.width) || 60, 10, 100)}%"><img class="img" src="${esc(b.value)}" alt="">${grip}</div>`
+        : b.placeholder && !readOnly
+          ? `<div class="imgbox img-todo" style="width:${clamp(Number(b.width) || 60, 10, 100)}%">${esc(b.placeholder)}${grip}</div>`
+          : "";
       break;
     case "lines": inner = `<div class="lines"><div class="ln">${"<div></div>".repeat(clamp(Number(b.n) || 0, 0, 30))}</div>${grip}</div>`; break;
     case "box": inner = `<div class="box" style="height:${clamp(Number(b.height_cm) || 0, 0, 25)}cm">${grip}</div>`; break;
@@ -1518,6 +1542,44 @@ $("#home-filter").oninput = () => { clearTimeout(filterTimer); filterTimer = set
 $("#tab-mine").onclick = () => { tab = "mine"; renderHome(); };
 $("#tab-shelf").onclick = () => { tab = "shelf"; renderHome(); };
 $("#new-btn").onclick = newExam;
+
+// Import: the server turns a sheet into exam JSON, then it is saved like any other new exam.
+// Everything in the sheet is content, so it goes through the same editor the teacher already knows.
+$("#import-btn").onclick = () => {
+  const box = $("#import-box");
+  box.hidden = !box.hidden;
+  if (!box.hidden) $("#import-msg").replaceChildren();
+};
+$("#import-pick").onclick = () => $("#import-file").click();
+$("#import-file").onchange = async () => {
+  const file = $("#import-file").files[0];
+  const msg = $("#import-msg");
+  if (!file) return;
+  if (!code) { msg.replaceChildren(h("p", { class: "bad" }, "Enter your staff code first.")); return; }
+  msg.replaceChildren(h("p", { class: "note" }, `Reading ${file.name}…`));
+  try {
+    const r = await fetch(`/api/import?owner=${code}`, {
+      method: "POST", headers: { "X-Filename": file.name }, body: file,
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      msg.replaceChildren(h("p", { class: "bad" }, body.error || `Could not read that file (HTTP ${r.status}).`),
+        ...(body.problems || []).map(p => h("p", { class: "note" }, p)));
+      return;
+    }
+    uid = newUid();
+    exam = { ...defaults(), ...body.exam };
+    examOwner = code;
+    readOnly = false;
+    openEditor();
+    scheduleSave(false);
+    if (body.warnings?.length) setStatus(body.warnings.join(" "), true);
+  } catch (e) {
+    msg.replaceChildren(h("p", { class: "bad" }, `Could not read that file: ${e.message}`));
+  } finally {
+    $("#import-file").value = "";
+  }
+};
 $("#dup-btn").onclick = () => duplicate(uid);
 $("#undo-btn").onclick = undo;
 document.addEventListener("keydown", e => {

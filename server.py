@@ -17,6 +17,7 @@ changes need the admin PIN chosen on first run.
 
 import hashlib
 import hmac
+import importer
 import json
 import logging
 import os
@@ -37,6 +38,7 @@ STATIC = ROOT / "static"
 DATA = ROOT / "data"
 MAX_BODY = 50 * 1024 * 1024  # images are inlined as data URIs
 MAX_LOGO = 2 * 1024 * 1024
+MAX_SHEET = 5 * 1024 * 1024  # an uploaded question spreadsheet
 BACKUP_KEEP = 14
 
 _OWNER_RE = re.compile(r"^[A-Za-z]{3}$")
@@ -441,6 +443,47 @@ class Handler(SimpleHTTPRequestHandler):
             return False
         return True
 
+    def _import_route(self, method):
+        """The question-sheet template and upload; returns False for anything else.
+
+        Nothing in an uploaded sheet is obeyed. importer.parse only ever returns exam
+        content, and the browser saves it through the usual PUT under the teacher's own
+        code, so an import cannot reach anyone else's work.
+        """
+        path = urlparse(self.path).path.rstrip("/")
+        if path.startswith("/import-template") and method == "GET":
+            xlsx = path.endswith(".xlsx")
+            body = importer.template_xlsx() if xlsx else importer.template_csv()
+            name = "exam-questions-template." + ("xlsx" if xlsx else "csv")
+            self.send_response(200)
+            self.send_header("Content-Type",
+                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                             if xlsx else "text/csv; charset=utf-8")
+            self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return True
+        if path != "/api/import" or method != "POST":
+            return False
+        api = self._api()
+        if not api:  # a missing or bad staff code has already been answered
+            return True
+        raw = self._read_body(MAX_SHEET)
+        if raw is None:
+            return True
+        filename = (self.headers.get("X-Filename") or "").strip()[:200]
+        try:
+            exam, warnings = importer.parse(raw, filename)
+        except importer.SheetError as e:
+            self._json({"error": "That sheet could not be read.", "problems": e.problems[:50]}, 400)
+        except Exception:
+            logger.exception("import failed")
+            self._json({"error": "That file could not be read as a spreadsheet."}, 400)
+        else:
+            self._json({"exam": exam, "warnings": warnings[:50]})
+        return True
+
     def _settings_route(self, method):
         """Handles /school-logo and /api/settings/...; returns False for anything else."""
         path = urlparse(self.path).path.rstrip("/")
@@ -523,7 +566,7 @@ class Handler(SimpleHTTPRequestHandler):
         self._json({"error": "Exam not found."}, 404)
 
     def do_GET(self):
-        if self._settings_route("GET"):
+        if self._import_route("GET") or self._settings_route("GET"):
             return
         api = self._api()
         if api is None:
@@ -542,7 +585,7 @@ class Handler(SimpleHTTPRequestHandler):
         self._not_found()
 
     def do_POST(self):
-        if not self._settings_route("POST"):
+        if not self._import_route("POST") and not self._settings_route("POST"):
             self._json({"error": "Not found."}, 404)
 
     def do_PUT(self):
