@@ -53,6 +53,31 @@ class StructureTests(unittest.TestCase):
         self.assertEqual(s["questions"][0]["marks"], 5)
         self.assertEqual(s["questions"][0]["parts"][0]["parts"][0]["marks"], 1)
 
+    def test_to_answer_all_means_every_question_not_the_word(self):
+        """Number("all") is NaN, which printed as NaN on the cover."""
+        for wanted in ("all", "ALL", "every", ""):
+            exam, _ = importer.parse(sheet(f"A,section,S,,,,to_answer={wanted},,,",
+                                           ",question,Stem,1,,,,,,"), "x.csv")
+            self.assertIsNone(exam["sections"][0]["to_answer"], wanted)
+
+    def test_to_answer_a_number_is_kept_and_nonsense_is_refused(self):
+        exam, _ = importer.parse(sheet("A,section,S,,,,to_answer=3,,,", ",question,Stem,1,,,,,,"), "x.csv")
+        self.assertEqual(exam["sections"][0]["to_answer"], "3")
+        with self.assertRaises(importer.SheetError) as caught:
+            importer.parse(sheet("A,section,S,,,,to_answer=most,,,", ",question,Stem,1,,,,,,"), "x.csv")
+        self.assertIn("to_answer", " ".join(caught.exception.problems))
+
+    def test_bare_maths_is_warned_about(self):
+        _, warnings = importer.parse(sheet(
+            ",question,Find all values of k for which x^2 + 4x + k = 0.,3,,,,,,"), "x.csv")
+        self.assertTrue(any("$" in w and "Row 2" in w for w in warnings), warnings)
+
+    def test_wrapped_maths_and_plain_prose_are_not_warned_about(self):
+        _, warnings = importer.parse(sheet(
+            ",question,Solve $x^2 + 4x + k = 0$ for $k$.,3,,,,,,",
+            ",text,Explain your reasoning in full sentences.,,,,,,,"), "x.csv")
+        self.assertEqual([w for w in warnings if "$" in w], [])
+
     def test_questions_without_a_section_get_one(self):
         exam, _ = importer.parse(sheet(",question,Stem,2,,,,,,"), "x.csv")
         self.assertEqual(exam["sections"][0]["name"], "A")

@@ -27,6 +27,10 @@ MAX_TABLE_ROWS = 40
 MAX_LINES = 30
 MAX_BOX_CM = 25
 
+# Maths that was written bare instead of wrapped in $ ... $ prints as the characters typed,
+# so say so rather than letting "x^2 + 4x" reach a student's paper.
+_BARE_MATHS = re.compile(r"[A-Za-z0-9)][\^_]\s*[-+]?[A-Za-z0-9(]|[A-Za-z]\s*=\s*[-+]?[\dA-Za-z(]")
+
 COLUMNS = ["ref", "kind", "content", "marks", "options", "answer", "params", "image", "graph", "notes"]
 
 KINDS = {
@@ -314,6 +318,14 @@ def _block(kind, row, row_no, problems):
     return block
 
 
+def _warn_bare_maths(text, row_no, warnings):
+    """Maths only typesets inside $ ... $; outside it prints exactly as typed."""
+    outside = re.sub(r"\$[^$]+\$", "", text or "")
+    if _BARE_MATHS.search(outside):
+        warnings.append(f"Row {row_no}: this looks like maths written without $ … $, "
+                        "so it will print as typed. Wrap it, e.g. $x^2 + 4x + k = 0$.")
+
+
 def rows_to_exam(rows, defaults=None):
     """A sheet (list of lists) -> an exam dict the app can open. Raises SheetError."""
     problems, warnings = [], []
@@ -366,8 +378,15 @@ def rows_to_exam(rows, defaults=None):
 
         if kind == "section":
             name = row["ref"].strip() or chr(65 + len(sections))
+            # "all" (or blank) means every question, which the app stores as nothing at all.
+            # Anything else must be a number, or the cover table would print NaN.
+            wanted = (p.get("to_answer") or "").strip()
+            to_answer = None
+            if wanted and wanted.lower() not in ("all", "every", "each"):
+                n = _int(wanted, 0, 999, row_no, "to_answer", problems)
+                to_answer = str(n) if n is not None else None
             sections.append({"name": name[:4], "description": (p.get("description") or row["content"])[:200],
-                             "to_answer": p.get("to_answer") or None, "instructions": "", "questions": []})
+                             "to_answer": to_answer, "instructions": "", "questions": []})
             current = {0: None, 1: None, 2: None}
             continue
 
@@ -393,6 +412,7 @@ def rows_to_exam(rows, defaults=None):
                 current[depth + 1] = None if depth + 1 in current else None
             if row["content"]:                    # the wording written on the same row
                 item["blocks"].append({"type": "text", "value": row["content"]})
+                _warn_bare_maths(row["content"], row_no, warnings)
             continue
 
         if kind == "newpage":
@@ -410,6 +430,8 @@ def rows_to_exam(rows, defaults=None):
         block = _block(kind, row, row_no, problems)
         if block is not None:
             target["blocks"].append(block)
+            if kind == "text":
+                _warn_bare_maths(row["content"], row_no, warnings)
             if kind == "image":
                 warnings.append(f"Row {row_no}: add the picture for “{block['placeholder']}” in the editor.")
 
@@ -443,6 +465,8 @@ PREAMBLE = [
     ["   belongs to the question above it. A part needs a question above it; a subpart needs a part."],
     ["3. marks go on question/part/subpart rows only, as a whole number from 0 to %d." % MAX_MARKS],
     ["4. Do not invent columns, and do not merge cells. Leave a cell empty rather than writing 'n/a'."],
+    ["4b. Wrap every piece of maths in a sentence with $ ... $ — see 'content' below. x^2 written bare"],
+    ["    prints as the characters x^2, which is not what a student should see."],
     ["5. Images are placeholders only — describe the picture in the image column; the teacher adds the file."],
     ["7. AVOID COMMAS INSIDE A CELL if you are writing this file as .csv text: a comma starts a new column"],
     ["   and your row will be cut in half. Separate numbers with spaces (points=(1 2)(3 4), boxplot=2 6 9 13 18)."],
@@ -453,7 +477,10 @@ PREAMBLE = [
     ["COLUMNS"],
     ["ref      section letter on a section row (A, B). Optional elsewhere — the order of rows sets the numbering."],
     ["kind     what this row is (see the list above)."],
-    ["content  the words. For a table: cells as a|b; c|d. For an equation: LaTeX, e.g. \\frac{1}{2}mv^2."],
+    ["content  the words. For a table: cells as a|b; c|d. For an equation row: LaTeX, e.g. \\frac{1}{2}mv^2."],
+    ["         MATHS INSIDE A SENTENCE MUST BE WRAPPED IN $ ... $ or it prints literally as you typed it."],
+    ["         Write:  Solve $x^2 + 4x + k = 0$ for $k$.      NOT:  Solve x^2 + 4x + k = 0 for k."],
+    ["         Inside the $ $ use LaTeX: $x^2$, $h = -5t^2 + 20t + 1.5$, $\\frac{a}{b}$, $\\sqrt{x}$."],
     ["marks    a whole number, on question/part/subpart rows."],
     ["options  multiple choice options separated by | , e.g. 4 N | 8 N | 12 N | 16 N"],
     ["answer   the correct option letter (A, B, C...). It is never printed on the paper."],
@@ -478,9 +505,9 @@ PREAMBLE = [
 ]
 
 EXAMPLE = [
-    ["A", "section", "Short answer questions", "", "", "", "to_answer=all", "", "", ""],
-    ["", "question", "A trolley of mass 2.0 kg accelerates from rest.", "4", "", "", "", "", "", ""],
-    ["", "part", "Calculate the net force.", "2", "", "", "", "", "", ""],
+    ["A", "section", "Short answer questions", "", "", "", "", "", "", "leave to_answer out unless only some are answered"],
+    ["", "question", "A trolley of mass $m = 2.0$ kg accelerates from rest.", "4", "", "", "", "", "", ""],
+    ["", "part", "Calculate the net force if $a = 3.0$ m s$^{-2}$.", "2", "", "", "", "", "", ""],
     ["", "answer", "", "", "", "", "labels=F; units=N", "", "", ""],
     ["", "part", "Explain what happens when the force is removed.", "2", "", "", "", "", "", ""],
     ["", "lines", "", "", "", "", "lines=4", "", "", ""],

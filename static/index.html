@@ -830,7 +830,12 @@ function renderPaper() {
   paperStale = false;
   paperRefs = [];
   const ex = exam, ed = !readOnly;
-  const answered = s => s.to_answer == null || s.to_answer === "" ? s.questions.length : Number(s.to_answer);
+  // Blank means "all of them". Anything that isn't a number (an imported "all", say) means that too,
+  // so the cover table can never print NaN.
+  const answered = s => {
+    const n = s.to_answer == null || s.to_answer === "" ? NaN : Number(s.to_answer);
+    return Number.isFinite(n) ? n : s.questions.length;
+  };
   const nQ = ex.sections.reduce((a, s) => a + s.questions.length, 0);
   const sectionName = s => `Section ${s.name}${s.description ? ": " + s.description : ""}`;
 

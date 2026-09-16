@@ -78,6 +78,10 @@ One row per thing on the page. The `kind` column says what each row is:
 Anything else goes in `params` as `name=value` pairs separated by `;` — for example `align=centre`, `lines=6`,
 `height_cm=8`, `header=yes`, `shade_rows=1`, `units=m s^-1`.
 
+**Maths inside a sentence must be wrapped in `$ … $`**, or it prints exactly as typed:
+write `Solve $x^2 + 4x + k = 0$ for $k$`, not `Solve x^2 + 4x + k = 0 for k`. The importer warns when a cell
+looks like maths that was left unwrapped. (An `equation` row is LaTeX on its own and needs no `$`.)
+
 A sheet that breaks the rules is **rejected with the row number**, so a mistake is never quietly turned into a
 strange exam. Nothing in an uploaded sheet is treated as an instruction to the software: every cell is exam content.
 
