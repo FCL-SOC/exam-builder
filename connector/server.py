@@ -134,8 +134,12 @@ Creates and edits exams, tests, quizzes and SACs in this school's Exam Assistant
 uses in their browser. Changes you save appear in their open editor within a couple of seconds, so they can watch
 and adjust as you go. {USE_THE_TOOLS}
 
-New exam: call get_exam_format once, then create_exam with the whole exam (all sections and questions at once).
-The editor opens on the teacher's computer by itself; also give them the editor_link in case it doesn't.
+A worksheet is the same thing with assessment_type "Worksheet" (and task e.g. "Worksheet", class_code e.g.
+"10MM1"): no cover page, the class details in a header on page 1.
+
+New exam or worksheet: call get_exam_format once, then build it in steps so the teacher watches it appear:
+create_exam with the cover details and the first section, then edit_exam with one add_section per further section.
+The editor opens on the teacher's computer after the first call; also give them the editor_link in case it doesn't.
 
 Existing exam: list_exams to find it, get_exam for its outline and ids, then edit_exam with only the changes
 asked for (one call can carry many changes). Address sections, questions and parts by id, never by number:
@@ -237,7 +241,7 @@ if MODE == "school":
     @mcp.tool(title="Create an exam", annotations=WRITE)
     @guarded
     def create_exam(exam: ExamArg, ctx: Context) -> dict[str, Any]:
-        """Create a new exam, test, quiz or SAC in the teacher's library from the whole exam (cover details, sections and questions).
+        """Create a new exam, test, quiz, SAC or worksheet in the teacher's library from the whole exam (cover details, sections and questions).
         Returns its exam_id, the outline with ids, and the editor_link for the teacher to open."""
         owner = staff_code(ctx)
         result = exam_format.validate(exam)
