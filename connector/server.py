@@ -58,6 +58,7 @@ from starlette.responses import HTMLResponse, JSONResponse, Response
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import exam_format  # noqa: E402
+import plans as plan_mode  # noqa: E402
 import school as school_mode  # noqa: E402
 from store import LinkStore  # noqa: E402
 
@@ -78,6 +79,7 @@ log = logging.getLogger("exam-connector")
 
 GUIDE = (ROOT / "docs" / "exam-format.md").read_text(encoding="utf-8")
 DEFAULT_STYLE_GUIDE = (ROOT / "docs" / "question-style-guide.md").read_text(encoding="utf-8")
+DEFAULT_PLAN_GUIDE = (ROOT / "docs" / "lesson-plan-guide.md").read_text(encoding="utf-8")
 EXAMPLE = json.loads((ROOT / "examples" / "sample_exam.json").read_text(encoding="utf-8"))
 
 
@@ -87,6 +89,15 @@ def format_text(style_guide: str) -> str:
             f"{style_guide.strip() or DEFAULT_STYLE_GUIDE}\n\n"
             f"# Complete example\n\n```json\n{json.dumps(EXAMPLE, indent=1)}\n```\n\n"
             f"# JSON Schema\n\n```json\n{json.dumps(exam_format.SCHEMA, separators=(',', ':'))}\n```\n")
+
+PLAN_FORMAT = """\
+# Lesson plans
+
+A lesson plan has details (class_code, subject, year_level, topic, lesson_date as YYYY-MM-DD) and five sections,
+L, E, A, R and N, each a short piece of text in the small format below. The teacher sees them as a table, and can
+copy it straight into Compass or download it as a Word document.
+
+"""
 
 TALKING_TO_TEACHERS = """\
 The teacher is not technical. Talk about the exam the way it looks on the page ("Section B, question 2, part b"), never
@@ -130,6 +141,11 @@ get_exam again before changing a question they have been working on.
 {WRITING_RULES}
 Existing images appear as refs ("img-…") that you can keep, move or remove. New images can only be added by the
 teacher in the editor; say where one should go. restore_version undoes your last change if it was wrong.
+
+Lesson plans (LEARN framework) are in the same app: call get_lesson_plan_format once, then create_lesson_plan, or
+list_lesson_plans / get_lesson_plan / edit_lesson_plan for an existing one. edit_lesson_plan replaces whole
+sections, so send only the sections asked about; the rest are kept. Give the teacher the editor_link, where they can
+copy the plan into Compass or download it as a Word document.
 
 {TALKING_TO_TEACHERS}
 """
@@ -264,6 +280,82 @@ if MODE == "school":
             return set()
 
         return school.change(owner, exam_id, put_back, f"restore {steps}")
+
+
+    # ---------------------------------------------------------- lesson plans
+    book = plan_mode.PlanBook(school.server, school.history, EDITOR_URL)
+    SectionsArg = Annotated[dict[str, str], Field(description=(
+        "Sections by letter (L, E, A, R, N), each the section's whole text in the plan format. Include only the "
+        "sections you are writing or changing."))]
+    DetailsArg = Annotated[dict[str, str], Field(description=(
+        "Any of: class_code (e.g. 10MM1), subject, year_level (e.g. 10), topic, lesson_date (YYYY-MM-DD)."))]
+
+    @mcp.tool(title="Get the lesson plan format", annotations=READ)
+    def get_lesson_plan_format() -> str:
+        """How to write a lesson plan: what goes in each LEARN section and the formatting that Compass and Word
+        understand. Call this once before writing or changing a lesson plan."""
+        try:
+            guide = school.server.settings().get("plan_guide", "")
+        except school_mode.SchoolError:
+            guide = ""
+        return PLAN_FORMAT + (guide.strip() or DEFAULT_PLAN_GUIDE)
+
+    @mcp.tool(title="List my lesson plans", annotations=READ)
+    @guarded
+    def list_lesson_plans(ctx: Context) -> dict[str, Any]:
+        """The teacher's lesson plans, most recently changed first: plan_id, title, class, date and topic."""
+        owner = staff_code(ctx)
+        return {"staff_code": owner, "lesson_plans": [
+            {"plan_id": r["uid"], "title": r.get("title") or "Untitled lesson plan", "class_code": r.get("class_code"),
+             "lesson_date": r.get("lesson_date"), "topic": r.get("topic"),
+             "updated": (r.get("updated_at") or "")[:16].replace("T", " ")}
+            for r in book.list(owner)[:50]]}
+
+    @mcp.tool(title="Read a lesson plan", annotations=READ)
+    @guarded
+    def get_lesson_plan(plan_id: str, ctx: Context) -> dict[str, Any]:
+        """A lesson plan's details and the text of each section, and the link that opens it."""
+        owner = staff_code(ctx)
+        found = book.read(owner, plan_id)
+        return {"plan_id": plan_id, "editor_link": book.link(plan_id), "read_only": found["owner"] != owner,
+                "plan": plan_mode.as_text(found["exam"], plan_id)}
+
+    @mcp.tool(title="Create a lesson plan", annotations=WRITE)
+    @guarded
+    def create_lesson_plan(details: DetailsArg, sections: SectionsArg, ctx: Context) -> dict[str, Any]:
+        """Create a new lesson plan in the teacher's library. Returns its plan_id and the editor_link to give the
+        teacher; once it is open, changes you make appear there live."""
+        owner = staff_code(ctx)
+        result = book.create(owner, details, sections)
+        if result["ok"]:
+            log.info("%s created lesson plan %s", owner, result["plan_id"])
+        return result
+
+    @mcp.tool(title="Change a lesson plan", annotations=WRITE)
+    @guarded
+    def edit_lesson_plan(plan_id: str, ctx: Context, sections: SectionsArg | None = None,
+                         details: DetailsArg | None = None) -> dict[str, Any]:
+        """Rewrite whole sections and/or change details of an existing lesson plan. Sections you leave out are
+        kept, and so is anything the teacher is typing at the same moment."""
+        owner = staff_code(ctx)
+        if not sections and not details:
+            raise ToolError("Give the sections and/or details to change.")
+        note = ", ".join([*(sections or {}), *(details or {})])
+        return book.change(owner, plan_id, details or {}, sections or {}, note)
+
+    @mcp.tool(title="Undo Claude's last lesson plan change", annotations=WRITE)
+    @guarded
+    def restore_lesson_plan(plan_id: str, ctx: Context,
+                            steps: Annotated[int, Field(ge=1, le=30, description="1 = before your last change, 2 = "
+                                                                                  "before the one before, …")] = 1
+                            ) -> dict[str, Any]:
+        """Put a lesson plan back the way it was before your last change (or several). Edits the teacher made since
+        then are undone too. It can itself be undone: call it again with steps=1."""
+        owner = staff_code(ctx)
+        versions = school.history.recent(plan_id, owner)
+        if len(versions) < steps:
+            raise ToolError(f"Only {len(versions)} earlier version(s) of this lesson plan are kept.")
+        return book.change(owner, plan_id, {}, {}, f"restore {steps}", replace=versions[steps - 1]["exam"])
 
 
 # ------------------------------------------------------------------ link mode

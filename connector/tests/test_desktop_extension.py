@@ -84,7 +84,9 @@ class DesktopExtensionTests(unittest.TestCase):
             listed = await c.call_tool("list_exams", {})
             return tools, created.structured_content, listed.structured_content
         tools, created, listed = self.run_client(steps=steps)
-        self.assertEqual(tools, ["get_exam_format", "list_exams", "get_exam", "create_exam", "edit_exam", "restore_version"])
+        self.assertEqual(tools, ["get_exam_format", "list_exams", "get_exam", "create_exam", "edit_exam", "restore_version",
+                                 "get_lesson_plan_format", "list_lesson_plans", "get_lesson_plan", "create_lesson_plan",
+                                 "edit_lesson_plan", "restore_lesson_plan"])
         self.assertTrue(created["ok"], created)
         self.assertEqual(listed["staff_code"], "ABC")  # the code from the install screen, upper-cased
         with urllib.request.urlopen(f"{self.app}/api/exams/{created['exam_id']}?owner=ABC") as r:
