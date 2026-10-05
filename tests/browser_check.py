@@ -90,13 +90,17 @@ def mixed_exam(sample: dict, seed: int = 2) -> dict:
 def print_matches_preview(page, url: str) -> str | None:
     """Open an exam and print it: Chrome must break pages exactly where the preview shows them (no blank pages,
     nothing pushed on). None if it does, else what differs."""
-    page.goto("about:blank")  # a new #data= on the same page is only a hash change: load it afresh
-    page.goto(url)
-    page.wait_for_selector("#editor-view:not([hidden]) .qhead")
-    page.wait_for_timeout(3000)  # maths, pictures and the 250 ms repaginate settle
-    shown = page.locator("#paper .band").count() + 3  # the cover, the pages the preview draws, the extra-space page
-    printed = len(re.findall(rb"/Type\s*/Page[^s]", page.pdf(prefer_css_page_size=True)))
-    return None if printed == shown else f"preview shows {shown} pages but it prints on {printed}"
+    page = page.context.new_page()  # a new tab (same staff code): a new #data= in the old one is only a hash change
+    try:
+        page.goto(url)
+        page.wait_for_selector("#editor-view:not([hidden]) .qhead")
+        page.wait_for_timeout(3000)  # maths, pictures and the 250 ms repaginate settle
+        shown = page.locator("#paper .band").count() + 3  # the cover, the pages the preview draws, the extra page
+        printed = len(re.findall(rb"/Type\s*/Page[^s]", page.pdf(prefer_css_page_size=True)))
+        questions = page.locator("#paper .qhead").count()
+    finally:
+        page.close()
+    return None if printed == shown else f"{questions} questions: preview shows {shown} pages but it prints on {printed}"
 
 
 def main() -> int:
@@ -163,8 +167,7 @@ def main() -> int:
                 assert mixed_result["ok"], mixed_result["errors"]
                 mixed_packed = exam_format.pack(exam_format.normalise(mixed, mixed_result["total_marks"]))
                 problem = print_matches_preview(page, url.split("#")[0] + "#data=" + mixed_packed)
-                print(f"mixed exam {seed} ({page.locator('#paper .qhead').count()} questions): "
-                      f"{problem or 'prints as previewed'}")
+                print(f"mixed exam {seed}: {problem or 'prints as previewed'}")
                 if problem:
                     failures.append(f"mixed exam {seed}: {problem}")
             browser.close()
