@@ -474,6 +474,7 @@ let saveTimer = null, saving = false, dirty = false;
 // The saved version this editor is working from (server updated_at) and that version's content, for merging
 // when the exam is saved somewhere else at the same time (another tab, or Claude).
 let version = null, baseJson = null;
+let notice = "";  // what a merge needs the teacher to know; shown with "Saved" until they next edit
 
 // ---------------------------------------------------------------- helpers
 const $ = s => document.querySelector(s);
@@ -635,7 +636,7 @@ function mergeList(B, M, T, report) {
 // ---------------------------------------------------------------- saving (never lose a teacher's work)
 function scheduleSave(track = true) {
   if (readOnly) return;
-  if (track) trackUndo();
+  if (track) { trackUndo(); notice = ""; }  // the teacher has moved on
   dirty = true;
   setStatus("Unsaved changes…");
   clearTimeout(saveTimer);
@@ -655,7 +656,7 @@ async function save() {
       method: "PUT", headers: { "Content-Type": "application/json" }, body,
     });
     if (savingUid === uid) { version = r.updated_at; baseJson = body; }
-    if (!dirty) setStatus("Saved");
+    if (!dirty) setStatus(notice ? `Saved · ${notice}` : "Saved");
   } catch (e) {
     dirty = true;
     if (e.status === 409) clash = true;  // saved somewhere else meanwhile: merge, then save again
@@ -717,12 +718,12 @@ async function pullRemote() {
     const r = await api(`/api/exams/${uid}?owner=${code}`);
     if (uid !== openUid || r.updated_at === version) return;
     const theirs = { ...defaults(), ...r.exam };
-    trackUndo();
     const report = mergeExam(baseJson ? JSON.parse(baseJson) : theirs, exam, theirs);
     version = r.updated_at;
     baseJson = JSON.stringify(r.exam);
     const changed = report.whole ? new Set(["all"]) : report.changed;
     if (changed.size) {
+      trackUndo();  // Undo goes back to how it was before this change (the last settled state)
       // A field whose content just changed underneath the caret would type into a stale copy: let go of it.
       const field = document.activeElement?.closest?.("#paper [data-ref]");
       if (field && (report.whole || touchedBy(field, changed))) field.blur();
@@ -733,9 +734,9 @@ async function pullRemote() {
     if (same({ ...exam, ...ignore }, { ...theirs, ...ignore })) { dirty = false; clearTimeout(saveTimer); }
     else scheduleSave(false);  // this tab's own edits still need saving on top
     const who = r.updated_by === "claude" ? "Claude" : "another tab";
-    setStatus(report.whole ? `Replaced by ${who}'s version · Undo brings yours back`
-      : report.conflicts ? `Updated by ${who} · you both changed the same thing, so your version was kept`
-      : `Updated by ${who}`);
+    notice = report.whole ? `replaced by ${who}'s version: Undo brings yours back`
+      : report.conflicts ? `you and ${who} changed the same thing, so your version was kept` : notice;
+    setStatus(notice ? `Updated by ${who} · ${notice}` : `Updated by ${who}`);
   } catch { /* offline for a moment: the next check or save tries again */ }
   finally { pulling = false; }
 }
@@ -771,13 +772,14 @@ function show(view) {
   if (view !== "editor") { $("#palette").hidden = true; document.body.classList.remove("palette"); }
 }
 
-let homeRequest = 0, homeSeen = "";
+let homeRequest = 0;  // a slow list response must not overwrite a newer one (e.g. after the code changed)
+let homeSeen = "";
 const listSignature = rows => rows.map(r => `${r.uid} ${r.updated_at}`).join("|");
 // An exam Claude creates or changes shows up in "My exams" without reloading.
 async function checkHomeList() {
   if ($("#home").hidden || document.hidden || !code || tab !== "mine") return;
   try { if (listSignature(await api(`/api/exams?owner=${code}`)) !== homeSeen) renderHome(); } catch { /* next time */ }
-}  // a slow list response must not overwrite a newer one (e.g. after the code changed)
+}
 async function renderHome() {
   const request = ++homeRequest;
   show("home");
@@ -942,6 +944,7 @@ async function deleteExam(r) {
 // ---------------------------------------------------------------- editor
 function openEditor() {
   show("editor");
+  notice = "";
   history.replaceState(null, "", `${location.pathname}${location.search}#exam=${uid}`);
   $("#settings-btn").hidden = $("#hint").hidden = $("#undo-btn").hidden = $("#palette").hidden = readOnly;
   document.body.classList.toggle("palette", !readOnly);
@@ -2139,7 +2142,7 @@ paper.addEventListener("drop", async e => {
 // A link to another exam pasted into this tab (e.g. the one Claude gives) only changes the #, so follow it here.
 addEventListener("hashchange", async () => {
   const m = location.hash.match(/^#exam=([a-z0-9-]+)$/);
-  if (!m || m[1] === uid || !code) return;
+  if (!m || !code || (m[1] === uid && !$("#editor-view").hidden)) return;
   clearTimeout(saveTimer);
   await save();
   if (!dirty) openExam(m[1]);

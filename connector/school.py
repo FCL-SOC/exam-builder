@@ -405,7 +405,8 @@ def apply_changes(exam: dict, changes: list[BaseModel], images: dict[str, str]) 
                 raise SchoolError(f"{where}: that would nest parts more than two levels deep (a., then i.).")
             t["list"].remove(t["node"])
             _place(dest, [t["node"]], ch.after, where)
-            touched |= _ids_in(t["node"])
+            # Moving doesn't change what a question says, so it isn't "touched": a teacher's unfinished question
+            # (no marks yet) can still be moved.
         elif isinstance(ch, AddSection):
             raw = {k: v for k, v in ch.section.items() if k != "id"}
             raw.setdefault("questions", [])
@@ -495,8 +496,10 @@ class School:
             raise SchoolError(f"There's no exam with id {uid!r} in {owner}'s exams. Use list_exams to find it.")
         return found
 
-    def change(self, owner: str, uid: str, mutate: Callable[[dict, dict], set[str]], note: str) -> dict:
-        """Read, mutate(exam, images) -> touched ids, check, save with the version check; again on a clash."""
+    def change(self, owner: str, uid: str, mutate: Callable[[dict, dict], set[str]], note: str,
+               keep_history: bool = True) -> dict:
+        """Read, mutate(exam, images) -> touched ids, check, save with the version check; again on a clash.
+        The version before is kept for restore_version unless keep_history is False."""
         for _ in range(4):
             current = self.read(owner, uid)
             if current["owner"] != owner:
@@ -510,6 +513,7 @@ class School:
                 touched = mutate(exam, images)
             except ChangeRejected as e:
                 return {"ok": False, "errors": e.errors, "message": "Nothing was changed. Fix these and try again."}
+            exam_format.ensure_ids(exam)  # e.g. after restoring a version from before the exam had ids
             errors, warnings, sem = check(exam, touched)
             if errors:
                 return {"ok": False, "errors": errors, "message": "Nothing was changed. Fix these and try again."}
@@ -518,7 +522,8 @@ class School:
                 self.server.put(owner, uid, exam, base=current["updated_at"])
             except Conflict:
                 continue  # the teacher saved meanwhile: read their version and apply the change again
-            self.history.add(uid, owner, before, note)
+            if keep_history:
+                self.history.add(uid, owner, before, note)
             shown, _ = hide_images(exam)
             return {"ok": True, "exam_id": uid, "editor_link": self.link(uid), "outline": outline(shown, uid),
                     "warnings": warnings}

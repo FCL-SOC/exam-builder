@@ -180,7 +180,8 @@ if MODE == "school":
         owner = staff_code(ctx)
         found = school.read(owner, exam_id)
         if found["owner"] == owner and exam_format.ensure_ids(copy.deepcopy(found["exam"])):
-            school.change(owner, exam_id, lambda exam, images: set(), "ids")  # older exam: give it ids first
+            # An older exam: give it ids first. Not an undo step: nothing visible changed.
+            school.change(owner, exam_id, lambda exam, images: set(), "ids", keep_history=False)
             found = school.read(owner, exam_id)
         shown, _ = school_mode.hide_images(found["exam"])
         return {"exam_id": exam_id, "editor_link": school.link(exam_id), "read_only": found["owner"] != owner,
@@ -369,11 +370,26 @@ class RateLimit:
 
 
 def allowed_hosts() -> list[str]:
-    """This server's own names: PUBLIC_URL's, plus this machine's names on the school network."""
+    """This server's own names and addresses: PUBLIC_URL's, plus this machine's names and IP addresses on the
+    school network (teachers may reach Exam Assistant, and so the connector, either way)."""
     hosts = {urlsplit(PUBLIC_URL).netloc, "localhost", "127.0.0.1", "localhost:*", "127.0.0.1:*"}
-    for name in {socket.gethostname(), socket.getfqdn()}:
-        if name:
-            hosts |= {name, f"{name}:{PORT}", name.lower(), f"{name.lower()}:{PORT}"}
+    names = {socket.gethostname(), socket.getfqdn()}
+    for name in list(names):
+        try:
+            names |= {info[4][0] for info in socket.getaddrinfo(name, None)}
+        except OSError:
+            pass
+    for target in ("10.254.254.254", "192.0.2.1", "8.8.8.8"):  # the address the OS would send from; nothing is sent
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            try:
+                probe.connect((target, 9))
+                names.add(probe.getsockname()[0])
+            except OSError:
+                pass
+    for name in filter(None, names):
+        if ":" in name:  # IPv6
+            name = f"[{name.split('%')[0]}]"
+        hosts |= {name, f"{name}:{PORT}", name.lower(), f"{name.lower()}:{PORT}"}
     return sorted(hosts)
 
 

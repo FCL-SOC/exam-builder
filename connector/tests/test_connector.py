@@ -246,6 +246,19 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(web.get("/e/nope").status_code, 404)
         self.assertEqual(web.get("/healthz").json()["ok"], True)
 
+    def test_allowed_hosts_include_this_machines_addresses(self):
+        import socket
+        hosts = server.allowed_hosts()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            try:
+                probe.connect(("10.254.254.254", 9))
+                ip = probe.getsockname()[0]
+            except OSError:
+                ip = "127.0.0.1"
+        self.assertIn(f"{ip}:{server.PORT}", hosts)  # teachers who reach the server by IP
+        self.assertIn("exams.example.org", hosts)    # PUBLIC_URL's host
+        self.assertNotIn("evil.example", hosts)
+
     def test_rate_limit(self):
         limiter = server.RateLimit(None, limit=2, window=60)
         sent = []

@@ -283,6 +283,35 @@ class SchoolModeTests(unittest.TestCase):
         self.call("edit_exam", exam_id=uid, changes=[{"op": "update_details", "changes": {"unit": "Still shared"}}])
         self.assertTrue(self.saved(uid)["exam"]["shared"])
 
+    def test_moving_a_teachers_unfinished_question_is_allowed(self):
+        uid = self.create()
+        exam = self.saved(uid)["exam"]
+        exam["sections"][0]["questions"].append({"id": "draft01", "marks": None, "blocks": [{"type": "text", "value": "draft"}], "parts": []})
+        http("PUT", f"exams/{uid}", exam, owner="ABC")
+        r = self.call("edit_exam", exam_id=uid, changes=[{"op": "move", "id": "draft01", "to": exam["sections"][1]["id"]}])
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(self.ids(uid)[1][1][-1], "draft01")
+
+    def test_reading_an_older_exam_is_not_an_undo_step(self):
+        http("PUT", "exams/old-0000002", {"unit": "Old", "sections": [
+            {"name": "A", "questions": [{"marks": 1, "blocks": [{"type": "lines", "n": 1}], "parts": []}]}]}, owner="ABC")
+        self.call("get_exam", exam_id="old-0000002")
+        self.assertIn("Only 0 earlier", self.call("restore_version", exam_id="old-0000002")["tool_error"])
+        self.call("edit_exam", exam_id="old-0000002", changes=[{"op": "update_details", "changes": {"unit": "New"}}])
+        r = self.call("restore_version", exam_id="old-0000002")
+        exam = self.saved("old-0000002")["exam"]
+        self.assertEqual(exam["unit"], "Old")
+        self.assertTrue(exam["sections"][0]["id"] and exam["sections"][0]["questions"][0]["id"])
+        self.assertNotIn("[id None]", r["outline"])
+
+    def test_restoring_a_version_without_ids_gives_it_ids(self):
+        uid = self.create()
+        no_ids = {"unit": "Ancient", "sections": [{"name": "A", "questions": [{"marks": 2, "blocks": [LINES], "parts": []}]}]}
+        connector.school.history.add(uid, "ABC", no_ids, "test")
+        r = self.call("restore_version", exam_id=uid)
+        self.assertTrue(r["ok"], r)
+        self.assertNotIn("[id None]", r["outline"])
+
     def test_older_exam_gets_ids_when_read(self):
         http("PUT", "exams/old-0000001", {"unit": "Old", "sections": [
             {"name": "A", "questions": [{"marks": 1, "blocks": [{"type": "lines", "n": 1}], "parts": []}]}]}, owner="ABC")

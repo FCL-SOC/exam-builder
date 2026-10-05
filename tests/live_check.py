@@ -145,10 +145,26 @@ def main() -> int:
             api.claude_edit(uid, lambda e: e["sections"][0]["questions"][0]["blocks"][0].update(value="one, by Claude"))
             page.wait_for_function("document.querySelector('#status').textContent.includes('your version was kept')",
                                    timeout=8000)
-            page.wait_for_function("document.querySelector('#status').textContent === 'Saved'", timeout=8000)
+            page.wait_for_function("document.querySelector('#status').textContent.startsWith('Saved')", timeout=8000)
             check("same question: teacher's version saved", texts(api.get(uid)["exam"])[0] == "one (teacher)!",
                   texts(api.get(uid)["exam"])[0])
             page.click("#totals")
+            page.wait_for_timeout(3000)
+            check("the 'your version was kept' notice stays after saving", "your version was kept" in status(), status())
+            page.locator("#paper .item .txt").nth(0).click()
+            page.keyboard.press("End")
+            page.keyboard.type("?")
+            page.wait_for_function("document.querySelector('#status').textContent === 'Saved'", timeout=8000)
+            check("...until the teacher edits again", status() == "Saved", status())
+            page.click("#totals")
+
+            # 3b. A save elsewhere that changes nothing visible (only the title) adds no Undo step.
+            page.wait_for_timeout(800)
+            page.evaluate("undoStack.length = 0; updateUndoButton()")
+            current = api.get(uid)
+            api.call("PUT", f"exams/{uid}", {**current["exam"], "title": "retitled elsewhere"}, base=current["updated_at"])
+            page.wait_for_timeout(3500)
+            check("no Undo step for an invisible change", page.is_disabled("#undo-btn"))
 
             # 4. Undo takes back Claude's change.
             page.wait_for_timeout(1000)
@@ -196,6 +212,11 @@ def main() -> int:
             page.wait_for_function("document.querySelector('#home-list').innerText.includes('Made by Claude')",
                                    timeout=8000)
             check("new exam appears in My exams", True)
+
+            # 8. Pasting the link of the exam last open (now on My exams) opens it.
+            page.evaluate(f"location.hash = '#exam=old-exam-0001'")
+            page.wait_for_selector("#editor-view:not([hidden]) .qhead", timeout=5000)
+            check("a pasted link opens the exam last open", page.is_visible("#editor-view"))
             check("no Use with Claude button without the connector", page.locator("#claude-btn").is_hidden())
             check("no page errors", not errors, errors)
             browser.close()
