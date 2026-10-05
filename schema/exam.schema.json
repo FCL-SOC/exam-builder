@@ -285,7 +285,8 @@
             "table",
             "answer",
             "choices",
-            "graph"
+            "graph",
+            "image"
           ]
         }
       },
@@ -385,6 +386,18 @@
           "then": {
             "$ref": "#/$defs/graph"
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "image"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/image"
+          }
         }
       ]
     },
@@ -401,7 +414,7 @@
         },
         "value": {
           "type": "string",
-          "maxLength": 5000,
+          "maxLength": 20000,
           "description": "Plain text; newlines kept; $...$ is inline LaTeX."
         },
         "align": {
@@ -422,7 +435,6 @@
         },
         "value": {
           "type": "string",
-          "minLength": 1,
           "maxLength": 2000,
           "description": "Display LaTeX, without $ delimiters."
         },
@@ -581,6 +593,9 @@
               },
               {
                 "$ref": "#/$defs/table"
+              },
+              {
+                "$ref": "#/$defs/image"
               }
             ]
           },
@@ -780,6 +795,37 @@
               "maxLength": 5000
             }
           }
+        },
+        "align": {
+          "$ref": "#/$defs/align"
+        }
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "description": "An image already in the exam. Claude refers to it by 'ref' (from get_exam); new images can only be added in the editor.",
+      "properties": {
+        "type": {
+          "const": "image"
+        },
+        "ref": {
+          "type": "string",
+          "pattern": "^img-[0-9a-f]{8}$"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^data:image/",
+          "description": "The image itself, as stored by the editor."
+        },
+        "width": {
+          "type": "number",
+          "minimum": 10,
+          "maximum": 100,
+          "description": "Percent of the column width."
         },
         "align": {
           "$ref": "#/$defs/align"

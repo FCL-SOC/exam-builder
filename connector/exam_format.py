@@ -191,13 +191,30 @@ def _path(parts) -> str:
     return s or "(exam)"
 
 
-def _schema_errors(exam: Any) -> list[str]:
+def _schema_errors(exam: Any, validator: Draft202012Validator = _VALIDATOR, where: str = "") -> list[str]:
     messages = []
-    for err in sorted(_VALIDATOR.iter_errors(exam), key=lambda e: list(map(str, e.absolute_path))):
+    for err in sorted(validator.iter_errors(exam), key=lambda e: list(map(str, e.absolute_path))):
         if err.validator in ("anyOf", "oneOf") and err.context:
             err = _best_branch_error(err)
-        messages.append(f"{_path(err.absolute_path)}: {err.message}")
+        path = _path(err.absolute_path)
+        if where:
+            path = where if path == "(exam)" else where + ("" if path.startswith("[") else ".") + path
+        messages.append(f"{path}: {err.message}")
     return messages
+
+
+# Parts of an exam on their own, for checking what Claude sends to change one question or section.
+_FRAGMENTS = {kind: Draft202012Validator({"$ref": f"#/$defs/{kind}", "$defs": SCHEMA["$defs"]})
+              for kind in ("section", "question", "part", "subpart")}
+_FRAGMENTS["details"] = Draft202012Validator({
+    "type": "object", "additionalProperties": False, "$defs": SCHEMA["$defs"],
+    "properties": {k: v for k, v in SCHEMA["properties"].items() if k not in ("sections", "title", "total_marks")}})
+
+
+def fragment_errors(kind: str, value: Any, where: str) -> list[str]:
+    """Schema errors in one section ('section'), question ('question'), part ('part' or 'subpart'), or a set of
+    cover fields ('details'), with paths starting at `where`."""
+    return _schema_errors(value, _FRAGMENTS[kind], where)
 
 
 def _best_branch_error(err):
@@ -290,6 +307,10 @@ class _Checker:
                     self.block(ow, o, in_option=True)
         elif t == "graph":
             self.graph(where, b)
+        elif t == "image":
+            if not str(b.get("value", "")).startswith("data:image/") and not b.get("ref"):
+                self.err(where, "an image needs the 'ref' of an image already in this exam (new images can only "
+                                "be added in the editor).")
 
     def axis_ok(self, where: str, a: dict | None, name: str) -> bool:
         if not a:
@@ -385,6 +406,13 @@ def validate(exam: Any) -> dict:
     errors = _schema_errors(exam)
     if errors:  # semantic checks assume the structure is right
         return {"ok": False, "errors": errors[:MAX_MESSAGES], "warnings": [], "total_marks": 0, "questions": 0}
+    result = semantics(exam)
+    return {**result, "errors": result["errors"][:MAX_MESSAGES], "warnings": result["warnings"][:MAX_MESSAGES]}
+
+
+def semantics(exam: dict) -> dict:
+    """The rules the editor applies when it draws and prints, over a structurally sound exam (one from the editor,
+    or one that passed the schema). Same result shape as validate(); messages are not truncated."""
     c = _Checker()
     total = 0.0
     questions = 0
@@ -400,8 +428,7 @@ def validate(exam: Any) -> dict:
             total += c.item(f"{sw}.questions[{qi}]", q, 0)
             questions += 1
     total = int(total) if total == int(total) else total
-    return {"ok": not c.errors, "errors": c.errors[:MAX_MESSAGES], "warnings": c.warnings[:MAX_MESSAGES],
-            "total_marks": total, "questions": questions}
+    return {"ok": not c.errors, "errors": c.errors, "warnings": c.warnings, "total_marks": total, "questions": questions}
 
 
 # ------------------------------------------------------------------ normalise and pack
