@@ -35,5 +35,6 @@ jobs:
           python tests/live_check.py
           python tests/school_check.py
           python tests/plans_check.py
+          python tests/preview_check.py
       - name: Docker image builds
         run: docker build -f connector/Dockerfile -t exam-connector .

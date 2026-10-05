@@ -90,6 +90,14 @@ def check(details: dict, sections: dict) -> tuple[list[str], list[str]]:
     return errors, warnings
 
 
+def shown(plan: dict) -> dict:
+    """The plan as the preview in the chat draws it: details, title and the five sections."""
+    out = {k: plan.get(k) or "" for k in DETAILS}
+    out["title"] = title(plan)
+    out["sections"] = {k: (plan.get("sections") or {}).get(k) or "" for k in SECTIONS}
+    return out
+
+
 def as_text(plan: dict, uid: str) -> str:
     """The plan as Claude reads it: details, then each section under its letter."""
     head = ", ".join(f"{k}: {plan.get(k)}" for k in DETAILS if plan.get(k))
@@ -116,12 +124,11 @@ class PlanBook:
     def read(self, owner: str, uid: str) -> dict:
         found = self.server.get(owner, uid, kind="plans")
         if not found:
-            raise SchoolError(f"There's no lesson plan with id {uid!r} in {owner}'s plans. Use list_lesson_plans.")
+            raise SchoolError(f"There's no lesson plan with id {uid!r} in {owner}'s plans. Use list_my_work.")
         return found
 
     def _done(self, uid: str, plan: dict, warnings: list[str]) -> dict:
-        return {"ok": True, "plan_id": uid, "editor_link": self.link(uid), "plan": as_text(plan, uid),
-                "warnings": warnings}
+        return {"ok": True, "plan_id": uid, "editor_link": self.link(uid), "plan": shown(plan), "warnings": warnings}
 
     def create(self, owner: str, details: dict, sections: dict) -> dict:
         errors, warnings = check(details, sections)
@@ -138,7 +145,7 @@ class PlanBook:
     def change(self, owner: str, uid: str, details: dict, sections: dict, note: str,
                replace: dict | None = None) -> dict:
         """Read, apply, save with the version check; again if the teacher saved meanwhile. `replace` puts back a
-        whole earlier version instead. The version before is kept for restore_lesson_plan."""
+        whole earlier version instead. The version before is kept for undo."""
         errors, warnings = check(details, sections)
         if errors:
             return {"ok": False, "errors": errors, "message": "Nothing was changed. Fix these and try again."}

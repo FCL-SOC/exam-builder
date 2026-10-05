@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "exam-assistant",
   "display_name": "Exam Assistant",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Write and edit exams, tests, SACs and lesson plans in your school's Exam Assistant, and watch them change live.",
   "long_description": "Ask Claude to write an exam or a LEARN lesson plan, add or rewrite questions, or change a section, and the changes appear in Exam Assistant in your browser within a couple of seconds. Claude works in your own library (your staff code), only on the school network. If you and Claude change the same thing at once, your version is kept.",
   "author": {
@@ -32,16 +32,16 @@
   },
   "tools": [
     {
-      "name": "get_exam_format",
-      "description": "The exam format and a worked example"
+      "name": "get_format",
+      "description": "How to write an exam or a lesson plan, with the school's guides"
     },
     {
-      "name": "list_exams",
-      "description": "Your exams, most recent first"
+      "name": "list_my_work",
+      "description": "Your exams and lesson plans, most recent first"
     },
     {
-      "name": "get_exam",
-      "description": "Read an exam: its numbered outline and content"
+      "name": "read",
+      "description": "Read an exam or lesson plan"
     },
     {
       "name": "create_exam",
@@ -52,32 +52,12 @@
       "description": "Add, rewrite, remove or move questions; change sections and cover details"
     },
     {
-      "name": "restore_version",
-      "description": "Undo Claude's last change to an exam"
+      "name": "write_lesson_plan",
+      "description": "Write or change a lesson plan, shown live in the chat"
     },
     {
-      "name": "get_lesson_plan_format",
-      "description": "What goes in each LEARN section, and the formatting"
-    },
-    {
-      "name": "list_lesson_plans",
-      "description": "Your lesson plans, most recent first"
-    },
-    {
-      "name": "get_lesson_plan",
-      "description": "Read a lesson plan"
-    },
-    {
-      "name": "create_lesson_plan",
-      "description": "Create a new lesson plan in your library"
-    },
-    {
-      "name": "edit_lesson_plan",
-      "description": "Rewrite sections or change a lesson plan's details"
-    },
-    {
-      "name": "restore_lesson_plan",
-      "description": "Undo Claude's last change to a lesson plan"
+      "name": "undo",
+      "description": "Undo Claude's last change to an exam or lesson plan"
     }
   ],
   "keywords": [

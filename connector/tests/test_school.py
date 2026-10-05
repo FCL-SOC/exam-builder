@@ -105,12 +105,11 @@ class SchoolModeTests(unittest.TestCase):
         async def go():
             async with Client(connector.mcp) as c:
                 return [t.name for t in (await c.list_tools()).tools]
-        self.assertEqual(asyncio.run(go()), ["get_exam_format", "list_exams", "get_exam", "create_exam", "edit_exam",
-                                             "restore_version", *PLAN_TOOLS])
+        self.assertEqual(asyncio.run(go()), TOOLS)
 
     def test_staff_code_is_required(self):
         del os.environ["STAFF_CODE"]
-        self.assertIn("click Use with Claude", self.call("list_exams")["tool_error"])
+        self.assertIn("click Use with Claude", self.call("list_my_work")["tool_error"])
 
     def test_create_saves_into_the_library_with_school_defaults(self):
         http("POST", "settings/pin", {"pin": "1234"})
@@ -128,7 +127,7 @@ class SchoolModeTests(unittest.TestCase):
         self.assertEqual((exam["task"], exam["total_marks"], exam["shared"]), ("End of Unit Test", 20, False))
         self.assertIn("End of Unit Test", exam["title"])
         self.assertTrue(all(s["id"] and all(qq["id"] for qq in s["questions"]) for s in exam["sections"]))
-        listed = self.call("list_exams")["exams"]
+        listed = self.call("list_my_work")["exams"]
         self.assertEqual(listed[0]["exam_id"], r["exam_id"])
 
     def test_create_rejects_bad_exams(self):
@@ -139,13 +138,13 @@ class SchoolModeTests(unittest.TestCase):
         self.assertIn("needs marks", r["errors"][0])
 
     def test_claude_gets_the_schools_question_style_guide(self):
-        self.assertIn("- Explain (2–4 marks)", self.call("get_exam_format")["result"])  # the built-in guide
+        self.assertIn("- Explain (2–4 marks)", self.call("get_format", kind="exam")["result"])  # the built-in guide
         http("POST", "settings/pin", {"pin": "1234"})
         req = urllib.request.Request(f"{EXAM_SERVER}/api/settings", method="PUT",
                                      data=json.dumps({"style_guide": "Always use five options in multiple choice."}).encode(),
                                      headers={"Content-Type": "application/json", "X-Admin-PIN": "1234"})
         urllib.request.urlopen(req).close()
-        text = self.call("get_exam_format")["result"]
+        text = self.call("get_format", kind="exam")["result"]
         self.assertIn("Always use five options in multiple choice.", text)
         self.assertNotIn("- Explain (2–4 marks)", text)
         req = urllib.request.Request(f"{EXAM_SERVER}/api/settings", method="PUT", data=json.dumps({"style_guide": ""}).encode(),
@@ -154,7 +153,7 @@ class SchoolModeTests(unittest.TestCase):
 
     def test_get_exam_outline(self):
         uid = self.create()
-        r = self.call("get_exam", exam_id=uid)
+        r = self.call("read", item_id=uid)
         s = self.saved(uid)["exam"]["sections"]
         self.assertFalse(r["read_only"])
         self.assertIn(f"Section B: Short answer  [id {s[1]['id']}]", r["outline"])
@@ -162,7 +161,7 @@ class SchoolModeTests(unittest.TestCase):
         self.assertIn(f"      b. (2 marks) Hence find the $x$-intercepts of the graph of $y = f(x)$.  [id {part['id']}]",
                       r["outline"])
         self.assertIn("   1. (7 marks) Consider the function", r["outline"])
-        self.assertIn("There's no exam with id 'nope-nope-nope'", self.call("get_exam", exam_id="nope-nope-nope")["tool_error"])
+        self.assertIn("There's no exam or lesson plan with id 'nope-nope-nope'", self.call("read", item_id="nope-nope-nope")["tool_error"])
 
     # ---------------------------------------------------------------- edits
     def test_add_replace_remove_move(self):
@@ -288,7 +287,7 @@ class SchoolModeTests(unittest.TestCase):
     def test_shared_exam_of_another_teacher_is_read_only(self):
         http("PUT", "exams/theirs-0001", {"unit": "Shared", "shared": True, "sections": [
             {"id": "s", "name": "A", "questions": [dict(q("x"), id="x1", parts=[])]}]}, owner="XYZ")
-        r = self.call("get_exam", exam_id="theirs-0001")
+        r = self.call("read", item_id="theirs-0001")
         self.assertTrue(r["read_only"])
         r = self.call("edit_exam", exam_id="theirs-0001", changes=[{"op": "remove", "id": "x1"}])
         self.assertIn("belongs to XYZ", r["tool_error"])
@@ -313,10 +312,10 @@ class SchoolModeTests(unittest.TestCase):
     def test_reading_an_older_exam_is_not_an_undo_step(self):
         http("PUT", "exams/old-0000002", {"unit": "Old", "sections": [
             {"name": "A", "questions": [{"marks": 1, "blocks": [{"type": "lines", "n": 1}], "parts": []}]}]}, owner="ABC")
-        self.call("get_exam", exam_id="old-0000002")
-        self.assertIn("Only 0 earlier", self.call("restore_version", exam_id="old-0000002")["tool_error"])
+        self.call("read", item_id="old-0000002")
+        self.assertIn("Only 0 earlier", self.call("undo", item_id="old-0000002")["tool_error"])
         self.call("edit_exam", exam_id="old-0000002", changes=[{"op": "update_details", "changes": {"unit": "New"}}])
-        r = self.call("restore_version", exam_id="old-0000002")
+        r = self.call("undo", item_id="old-0000002")
         exam = self.saved("old-0000002")["exam"]
         self.assertEqual(exam["unit"], "Old")
         self.assertTrue(exam["sections"][0]["id"] and exam["sections"][0]["questions"][0]["id"])
@@ -326,14 +325,14 @@ class SchoolModeTests(unittest.TestCase):
         uid = self.create()
         no_ids = {"unit": "Ancient", "sections": [{"name": "A", "questions": [{"marks": 2, "blocks": [LINES], "parts": []}]}]}
         connector.school.history.add(uid, "ABC", no_ids, "test")
-        r = self.call("restore_version", exam_id=uid)
+        r = self.call("undo", item_id=uid)
         self.assertTrue(r["ok"], r)
         self.assertNotIn("[id None]", r["outline"])
 
     def test_older_exam_gets_ids_when_read(self):
         http("PUT", "exams/old-0000001", {"unit": "Old", "sections": [
             {"name": "A", "questions": [{"marks": 1, "blocks": [{"type": "lines", "n": 1}], "parts": []}]}]}, owner="ABC")
-        r = self.call("get_exam", exam_id="old-0000001")
+        r = self.call("read", item_id="old-0000001")
         qid = self.saved("old-0000001")["exam"]["sections"][0]["questions"][0]["id"]
         self.assertTrue(qid)
         self.assertIn(f"[id {qid}]", r["outline"])
@@ -344,7 +343,7 @@ class SchoolModeTests(unittest.TestCase):
         target = exam["sections"][1]["questions"][1]
         target["blocks"].insert(1, {"type": "image", "value": PNG, "width": 50})
         http("PUT", f"exams/{uid}", exam, owner="ABC")
-        r = self.call("get_exam", exam_id=uid)
+        r = self.call("read", item_id=uid)
         self.assertNotIn("data:image", json.dumps(r))
         shown = r["exam"]["sections"][1]["questions"][1]
         ref = shown["blocks"][1]["ref"]
@@ -365,19 +364,19 @@ class SchoolModeTests(unittest.TestCase):
         self.call("edit_exam", exam_id=uid, changes=[{"op": "remove", "id": aq[0]}])
         self.call("edit_exam", exam_id=uid, changes=[{"op": "remove", "id": aq[1]}])
         self.assertEqual(len(self.texts(uid, 0)), 1)
-        r = self.call("restore_version", exam_id=uid)
+        r = self.call("undo", item_id=uid)
         self.assertTrue(r["ok"], r)
         self.assertEqual(len(self.texts(uid, 0)), 2)
-        self.call("restore_version", exam_id=uid)  # undoing the restore
+        self.call("undo", item_id=uid)  # undoing the restore
         self.assertEqual(len(self.texts(uid, 0)), 1)
-        self.call("restore_version", exam_id=uid, steps=4)  # restores count as changes too: back before both removals
+        self.call("undo", item_id=uid, steps=4)  # restores count as changes too: back before both removals
         self.assertEqual(len(self.texts(uid, 0)), 3)
-        self.assertIn("Only", self.call("restore_version", exam_id=uid, steps=30)["tool_error"])
+        self.assertIn("Only", self.call("undo", item_id=uid, steps=30)["tool_error"])
 
 
 LINES = {"type": "lines", "n": 2}
-PLAN_TOOLS = ["get_lesson_plan_format", "list_lesson_plans", "get_lesson_plan", "create_lesson_plan",
-              "edit_lesson_plan", "restore_lesson_plan"]
+TOOLS = ["get_format", "list_my_work", "read", "create_exam", "edit_exam", "write_lesson_plan",
+         "preview", "undo"]
 L_TEXT = ("**Learning Intentions**\nTo complete the square for $x^2 + bx + c$.\n**Success Criteria**\n"
           "- I can expand $(x+3)^2$\n**Do Now**\nExpand $(x+2)^2$.")
 
@@ -386,7 +385,7 @@ class LessonPlanTests(unittest.TestCase):
     setUp, tearDown, call = SchoolModeTests.setUp, SchoolModeTests.tearDown, SchoolModeTests.call
 
     def plan(self, **sections):
-        r = self.call("create_lesson_plan", details={"class_code": "10MM1", "topic": "Completing the square",
+        r = self.call("write_lesson_plan", details={"class_code": "10MM1", "topic": "Completing the square",
                                                      "lesson_date": "2026-10-14"}, sections=sections or {"L": L_TEXT})
         self.assertTrue(r["ok"], r)
         return r["plan_id"]
@@ -402,21 +401,21 @@ class LessonPlanTests(unittest.TestCase):
         self.assertEqual(set(plan["sections"]), set("LEARN"))
         self.assertEqual((plan["sections"]["L"], plan["sections"]["E"], plan["subject"]), (L_TEXT, "", ""))
         self.assertNotIn(uid, [r["uid"] for r in http("GET", "exams", owner="ABC")])  # never among the exams
-        listed = self.call("list_lesson_plans")["lesson_plans"]
+        listed = self.call("list_my_work")["lesson_plans"]
         self.assertEqual((listed[0]["plan_id"], listed[0]["lesson_date"]), (uid, "2026-10-14"))
-        r = self.call("get_lesson_plan", plan_id=uid)
+        r = self.call("read", item_id=uid)
         self.assertEqual(r["editor_link"], f"http://8801-openai-01:7900/plans.html#plan={uid}")
         self.assertIn("## E: Explain\n(empty)", r["plan"])
 
     def test_edit_replaces_only_the_sections_given(self):
         uid = self.plan()
-        r = self.call("edit_lesson_plan", plan_id=uid, sections={"E": "**Square**\nA *perfect square* is $(x+a)^2$."},
+        r = self.call("write_lesson_plan", plan_id=uid, sections={"E": "**Square**\nA *perfect square* is $(x+a)^2$."},
                       details={"year_level": "10"})
         self.assertTrue(r["ok"], r)
         plan = self.saved_plan(uid)["exam"]
         self.assertEqual((plan["sections"]["L"], plan["year_level"]), (L_TEXT, "10"))
         self.assertTrue(plan["sections"]["E"].startswith("**Square**"))
-        self.assertIn("give the sections", self.call("edit_lesson_plan", plan_id=uid)["tool_error"].lower())
+        self.assertIn("give the sections", self.call("write_lesson_plan", plan_id=uid)["tool_error"].lower())
 
     def test_formatting_that_would_break_compass_is_refused(self):
         uid = self.plan()
@@ -424,18 +423,18 @@ class LessonPlanTests(unittest.TestCase):
                              (r"Area is \\frac12 bh", "doubled backslash"), (r"Area is \frac{1}{2}bh", "outside $"),
                              ("$$\nx^2\n$$", "same line"), ("## Explain", "no # headings"),
                              ("- a\n  - b", "no indenting")]:
-            r = self.call("edit_lesson_plan", plan_id=uid, sections={"E": text})
+            r = self.call("write_lesson_plan", plan_id=uid, sections={"E": text})
             self.assertFalse(r["ok"], text)
             self.assertIn(expect, " ".join(r["errors"]), text)
         self.assertEqual(self.saved_plan(uid)["exam"]["sections"]["E"], "")
-        self.assertFalse(self.call("edit_lesson_plan", plan_id=uid, sections={"X": "hi"})["ok"])
-        self.assertFalse(self.call("edit_lesson_plan", plan_id=uid, details={"lesson_date": "14/10"})["ok"])
-        ok = self.call("edit_lesson_plan", plan_id=uid, sections={"E": "Costs \\$12.50; $\\frac{1}{2}$ off."})
+        self.assertFalse(self.call("write_lesson_plan", plan_id=uid, sections={"X": "hi"})["ok"])
+        self.assertFalse(self.call("write_lesson_plan", plan_id=uid, details={"lesson_date": "14/10"})["ok"])
+        ok = self.call("write_lesson_plan", plan_id=uid, sections={"E": "Costs \\$12.50; $\\frac{1}{2}$ off."})
         self.assertTrue(ok["ok"], ok)
 
     def test_guide_warnings(self):
         uid = self.plan()
-        r = self.call("edit_lesson_plan", plan_id=uid, sections={
+        r = self.call("write_lesson_plan", plan_id=uid, sections={
             "L": "To learn", "R": "- one", "E": "$A = \\frac12 ab = \\frac12 (5)(7) = 17.5 = 18$"})
         self.assertTrue(r["ok"])
         warnings = " ".join(r["warnings"])
@@ -456,7 +455,7 @@ class LessonPlanTests(unittest.TestCase):
 
         connector.school.server.put = teacher_saves_first
         try:
-            r = self.call("edit_lesson_plan", plan_id=uid, sections={"E": "Claude's"})
+            r = self.call("write_lesson_plan", plan_id=uid, sections={"E": "Claude's"})
         finally:
             connector.school.server.put = real_put
         self.assertTrue(r["ok"], r)
@@ -465,33 +464,62 @@ class LessonPlanTests(unittest.TestCase):
 
     def test_another_teachers_plan(self):
         http("PUT", "plans/theirs-plan1", {"topic": "Theirs", "sections": {"L": "x"}}, owner="XYZ")
-        self.assertIn("no lesson plan", self.call("get_lesson_plan", plan_id="theirs-plan1")["tool_error"])
-        self.assertIn("no lesson plan", self.call("edit_lesson_plan", plan_id="theirs-plan1",
+        self.assertIn("no exam or lesson plan", self.call("read", item_id="theirs-plan1")["tool_error"])
+        self.assertIn("no lesson plan", self.call("write_lesson_plan", plan_id="theirs-plan1",
                                                   sections={"L": "mine"})["tool_error"])
         self.assertEqual(http("GET", "plans/theirs-plan1", owner="XYZ")["exam"]["sections"]["L"], "x")
 
     def test_claude_gets_the_schools_plan_guide(self):
-        self.assertIn("**Learning Intentions**", self.call("get_lesson_plan_format")["result"])
+        self.assertIn("**Learning Intentions**", self.call("get_format", kind="lesson_plan")["result"])
         http("POST", "settings/pin", {"pin": "1234"})
         put = lambda v: urllib.request.urlopen(urllib.request.Request(  # noqa: E731
             f"{EXAM_SERVER}/api/settings", method="PUT", data=json.dumps({"plan_guide": v}).encode(),
             headers={"Content-Type": "application/json", "X-Admin-PIN": "1234"})).close()
         put("Our Do Now is always three questions.")
-        text = self.call("get_lesson_plan_format")["result"]
+        text = self.call("get_format", kind="lesson_plan")["result"]
         self.assertIn("Our Do Now is always three questions.", text)
         self.assertIn("# Lesson plans", text)
         self.assertNotIn("**Learning Intentions**", text)
         put("")
 
+    def test_the_plan_shows_in_the_chat(self):
+        """Writing tools carry an MCP App preview; the preview refreshes through a tool only it can see."""
+        async def go():
+            async with Client(connector.mcp) as c:
+                tools = {t.name: t for t in (await c.list_tools()).tools}
+                page = await c.read_resource("ui://exam-assistant/preview")
+                return tools, page
+        tools, page = asyncio.run(go())
+        for name in ("write_lesson_plan", "create_exam", "edit_exam", "preview"):
+            self.assertEqual(tools[name].meta["ui"]["resourceUri"], "ui://exam-assistant/preview")
+        self.assertEqual(tools["preview"].meta["ui"]["visibility"], ["app"])
+        self.assertIsNone(tools["read"].meta)  # reading shows nothing in the chat
+        content = page.contents[0]
+        self.assertEqual(content.mime_type, "text/html;profile=mcp-app")
+        self.assertIn("function compassHtml", content.text)  # the app's own formatting, inlined
+        self.assertNotIn("/*PLAN_EXPORT_JS*/", content.text)
+        uid = self.plan()
+        self.call("write_lesson_plan", plan_id=uid, sections={"E": "**Square**"})
+        r = self.call("preview", item_id=uid)
+        self.assertEqual((r["plan"]["title"], r["plan"]["sections"]["L"], r["plan"]["sections"]["E"]),
+                         ("10MM1 · Completing the square", L_TEXT, "**Square**"))
+        created = self.call("write_lesson_plan", details={"topic": "New"}, sections={"N": "Next."})
+        self.assertEqual(created["plan"]["sections"]["N"], "Next.")
+        self.assertIn("plans.html#plan=", created["editor_link"])
+        exam_id = self.call("create_exam", exam=copy.deepcopy(SAMPLE))["exam_id"]
+        e = self.call("preview", item_id=exam_id)
+        self.assertEqual((e["exam_id"], len(e["exam"]["sections"])), (exam_id, len(SAMPLE["sections"])))
+        self.assertIn("#exam=", e["editor_link"])
+
     def test_restore_lesson_plan(self):
         uid = self.plan()
-        self.call("edit_lesson_plan", plan_id=uid, sections={"E": "first"})
-        self.call("edit_lesson_plan", plan_id=uid, sections={"E": "second"})
-        self.assertTrue(self.call("restore_lesson_plan", plan_id=uid)["ok"])
+        self.call("write_lesson_plan", plan_id=uid, sections={"E": "first"})
+        self.call("write_lesson_plan", plan_id=uid, sections={"E": "second"})
+        self.assertTrue(self.call("undo", item_id=uid)["ok"])
         self.assertEqual(self.saved_plan(uid)["exam"]["sections"]["E"], "first")
-        self.call("restore_lesson_plan", plan_id=uid, steps=3)
+        self.call("undo", item_id=uid, steps=3)
         self.assertEqual(self.saved_plan(uid)["exam"]["sections"]["E"], "")
-        self.assertIn("Only", self.call("restore_lesson_plan", plan_id=uid, steps=30)["tool_error"])
+        self.assertIn("Only", self.call("undo", item_id=uid, steps=30)["tool_error"])
 
 if __name__ == "__main__":
     unittest.main()

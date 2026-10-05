@@ -364,7 +364,7 @@ def apply_changes(exam: dict, changes: list[BaseModel], images: dict[str, str]) 
         def target(id_: str, what: str = "id") -> dict:
             if id_ not in found:
                 raise SchoolError(f"{where}: no section, question or part has {what} {id_!r} (it may have been "
-                                  "deleted; call get_exam for the current ids).")
+                                  "deleted; read the exam again for the current ids).")
             return found[id_]
 
         if isinstance(ch, AddItems):
@@ -498,13 +498,13 @@ class School:
     def read(self, owner: str, uid: str) -> dict:
         found = self.server.get(owner, uid)
         if not found:
-            raise SchoolError(f"There's no exam with id {uid!r} in {owner}'s exams. Use list_exams to find it.")
+            raise SchoolError(f"There's no exam with id {uid!r} in {owner}'s exams. Use list_my_work to find it.")
         return found
 
     def change(self, owner: str, uid: str, mutate: Callable[[dict, dict], set[str]], note: str,
                keep_history: bool = True) -> dict:
         """Read, mutate(exam, images) -> touched ids, check, save with the version check; again on a clash.
-        The version before is kept for restore_version unless keep_history is False."""
+        The version before is kept for undo unless keep_history is False."""
         for _ in range(4):
             current = self.read(owner, uid)
             if current["owner"] != owner:

@@ -807,7 +807,7 @@
       "required": [
         "type"
       ],
-      "description": "An image already in the exam. Claude refers to it by 'ref' (from get_exam); new images can only be added in the editor.",
+      "description": "An image already in the exam. Claude refers to it by 'ref' (as read from the exam); new images can only be added in the editor.",
       "properties": {
         "type": {
           "const": "image"

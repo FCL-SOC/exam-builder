@@ -82,12 +82,11 @@ class DesktopExtensionTests(unittest.TestCase):
         async def steps(c):
             tools = [t.name for t in (await c.list_tools()).tools]
             created = await c.call_tool("create_exam", {"exam": SAMPLE})
-            listed = await c.call_tool("list_exams", {})
+            listed = await c.call_tool("list_my_work", {})
             return tools, created.structured_content, listed.structured_content
         tools, created, listed = self.run_client(steps=steps)
-        self.assertEqual(tools, ["get_exam_format", "list_exams", "get_exam", "create_exam", "edit_exam", "restore_version",
-                                 "get_lesson_plan_format", "list_lesson_plans", "get_lesson_plan", "create_lesson_plan",
-                                 "edit_lesson_plan", "restore_lesson_plan"])
+        self.assertEqual(tools, ["get_format", "list_my_work", "read", "create_exam", "edit_exam", "write_lesson_plan",
+                                 "preview", "undo"])
         self.assertTrue(created["ok"], created)
         self.assertEqual(listed["staff_code"], "ABC")  # the code from the install screen, upper-cased
         with urllib.request.urlopen(f"{self.app}/api/exams/{created['exam_id']}?owner=ABC") as r:
@@ -97,7 +96,7 @@ class DesktopExtensionTests(unittest.TestCase):
     def test_edits_go_through(self):
         async def steps(c):
             created = (await c.call_tool("create_exam", {"exam": SAMPLE})).structured_content
-            read = (await c.call_tool("get_exam", {"exam_id": created["exam_id"]})).structured_content
+            read = (await c.call_tool("read", {"item_id": created["exam_id"]})).structured_content
             section = read["exam"]["sections"][0]["id"]
             edited = await c.call_tool("edit_exam", {"exam_id": created["exam_id"], "changes": [
                 {"op": "add", "to": section, "items": [{"marks": 1, "blocks": [
@@ -110,7 +109,7 @@ class DesktopExtensionTests(unittest.TestCase):
 
     def test_without_a_staff_code_the_teacher_is_told_how_to_fix_it(self):
         async def steps(c):
-            r = await c.call_tool("list_exams", {})
+            r = await c.call_tool("list_my_work", {})
             return r.is_error, r.content[0].text
         is_error, text = self.run_client(staff_code="", steps=steps)
         self.assertTrue(is_error)
