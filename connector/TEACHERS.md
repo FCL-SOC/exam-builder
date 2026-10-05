@@ -6,8 +6,11 @@ It works in Claude Desktop, at school.
 ## Set up (once, about a minute)
 
 1. Open **Claude Desktop**.
-2. Double-click **exam-assistant.mcpb** (from IT or the shared drive).
-3. Type your **three-letter staff code**, the one you use in Exam Assistant, and click **Install**.
+2. In Exam Assistant, type your staff code and click **Use with Claude** (top right), then **Download the Exam
+   Assistant extension**.
+3. Open the downloaded file. Claude shows an install screen with your staff code already filled in: click **Install**.
+
+Claude may say the extension isn't from a verified developer: it's the school's own, so that's expected.
 
 ## Use it
 

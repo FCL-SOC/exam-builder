@@ -67,6 +67,8 @@
   .settings .note { font-size: 14px; }
   .settings > label.chk { display: block; }
   .settings .btns { display: flex; gap: 8px; margin-top: 14px; }
+  #claude ol { padding-left: 22px; line-height: 1.6; } #claude li { margin: 8px 0; }
+  #claude a.dl { display: inline-block; background: var(--red); color: #fff; text-decoration: none; border-radius: var(--radius); padding: 6px 12px; }
 
   /* ---------- the exam paper (screen preview AND print) ---------- */
   .sheet { position: relative; width: 210mm; margin: 0 auto 20px; background: #fff; box-shadow: var(--shadow); padding: 15mm; color: #000;
@@ -229,6 +231,7 @@
                  border: 1.5px dashed #c8b89a; border-radius: 4px; color: #8a7a5a; font: 12px 'Segoe UI', Arial, sans-serif; text-align: center; }
     #school-btn { background: none; color: #fff; border-color: rgba(255,255,255,.6); font-size: 13px; }
     #school-btn:hover { border-color: #fff; }
+    #claude-btn { font-size: 13px; border-color: #fff; }  /* filled, so teachers notice it */
     .eq input.latex { display: block; width: 80%; margin: 4px auto 0; font: 12px Consolas, 'Courier New', monospace; }
 
     /* Structure controls: shown on hover, never printed */
@@ -312,6 +315,7 @@
     <h1>Exam Assistant</h1>
     <label for="code">Staff code</label>
     <input id="code" maxlength="3" autocomplete="off" placeholder="ABC">
+    <button id="claude-btn" title="Write and edit exams with Claude" hidden>Use with Claude</button>
     <button id="school-btn" title="School name, logo, cover wording, fonts and colours">School settings</button>
     <span id="status"></span>
   </header>
@@ -421,6 +425,23 @@
       <div class="btns"><button type="button" id="st-change-pin">Change PIN</button><span class="grow"></span>
         <button type="button" id="school-close">Close</button><button type="button" class="primary" id="school-save">Save</button></div>
     </div>
+  </form>
+</dialog>
+<dialog id="claude">
+  <form method="dialog" class="settings">
+    <h3>Use Exam Assistant with Claude</h3>
+    <p>Ask Claude to write an exam or change a question, and watch it appear here as it works.</p>
+    <p class="bad" id="claude-nocode" hidden>Type your staff code in the top bar first, then open this again.</p>
+    <ol id="claude-steps">
+      <li>Open <b>Claude Desktop</b> on this computer.</li>
+      <li><a id="claude-download" class="dl" download="exam-assistant.mcpb">Download the Exam Assistant extension</a>
+        and open the file.</li>
+      <li>Claude shows an install screen with your staff code (<b id="claude-code"></b>) already filled in.
+        Click <b>Install</b>.</li>
+    </ol>
+    <p class="note">Then ask Claude, for example: <i>"Write a 30-mark Year 9 Science test on cells."</i>
+      It works on the school network, in Claude Desktop.</p>
+    <div class="btns"><span class="grow"></span><button class="primary">Done</button></div>
   </form>
 </dialog>
 <datalist id="subjects"></datalist>
@@ -1732,6 +1753,16 @@ async function changePin() {
 }
 $("#st-body_font").append(...FONTS.map(([value, name]) => h("option", { value }, name)));
 $("#school-btn").onclick = openSchoolSettings;
+
+// "Use with Claude": only when the Claude connector runs on this server (never in the demo).
+fetch("/claude/status").then(r => r.ok ? r.json() : {}).then(j => { $("#claude-btn").hidden = !j.available; }).catch(() => {});
+$("#claude-btn").onclick = () => {
+  $("#claude-nocode").hidden = !!code;
+  $("#claude-steps").hidden = !code;
+  $("#claude-code").textContent = code;
+  $("#claude-download").href = `/claude/exam-assistant.mcpb?owner=${code}`;
+  $("#claude").showModal();
+};
 $("#school-unlock").onclick = unlockSchool;
 $("#school-pin").onkeydown = $("#school-pin2").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); unlockSchool(); } };
 $("#school-cancel").onclick = $("#school-close").onclick = () => schoolDialog.close();
@@ -2105,6 +2136,14 @@ paper.addEventListener("drop", async e => {
   catch (err) { alert(err.message); }
 });
 
+// A link to another exam pasted into this tab (e.g. the one Claude gives) only changes the #, so follow it here.
+addEventListener("hashchange", async () => {
+  const m = location.hash.match(/^#exam=([a-z0-9-]+)$/);
+  if (!m || m[1] === uid || !code) return;
+  clearTimeout(saveTimer);
+  await save();
+  if (!dirty) openExam(m[1]);
+});
 setInterval(checkForUpdates, 2000);
 setInterval(checkHomeList, 5000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { checkForUpdates(); checkHomeList(); } });

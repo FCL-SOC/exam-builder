@@ -27,7 +27,10 @@ import sqlite3
 import sys
 import threading
 import time
+import urllib.request
+import zipfile
 from datetime import datetime, timedelta
+from io import BytesIO
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -42,6 +45,12 @@ BACKUP_KEEP = 14
 _OWNER_RE = re.compile(r"^[A-Za-z]{3}$")
 _UID_RE = re.compile(r"^[a-z0-9-]{8,64}$")
 BAD_OWNER = "Enter your three-letter staff code (for example ABC) to use your exams."
+
+# The Claude connector (connector/), when start.bat runs it alongside: Exam Assistant offers teachers its
+# Claude Desktop extension, filled in with their staff code and this server's address.
+CONNECTOR_PORT = int(os.environ.get("CONNECTOR_PORT", "7901"))
+EXTENSION_DIR = ROOT / "connector" / "desktop-extension"
+_HOST_RE = re.compile(r"^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]+)(:\d+)?$")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("exam-assistant")
@@ -201,6 +210,48 @@ class ExamStore:
                 self._conn.backup(dst)
         finally:
             dst.close()
+
+
+class ClaudeExtension:
+    """
+    The Claude Desktop extension, personalised per teacher: their staff code and the connector's address are
+    filled in on Claude's install screen, so installing is open-the-file, click Install. Built from the files in
+    connector/desktop-extension/, standard library only.
+    """
+
+    FILES = ("manifest.json", "server/index.js", "icon.png")
+
+    def __init__(self, folder=EXTENSION_DIR, port=CONNECTOR_PORT):
+        self.folder, self.port = Path(folder), port
+        self._checked, self._running = 0.0, False
+
+    def available(self):
+        """Whether the connector is running on this machine (checked at most every 10 s)."""
+        if not all((self.folder / f).exists() for f in self.FILES):
+            return False
+        if time.monotonic() - self._checked > 10:
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/healthz", timeout=1) as r:
+                    self._running = r.status == 200
+            except OSError:
+                self._running = False
+            self._checked = time.monotonic()
+        return self._running
+
+    def build(self, owner, host):
+        """The .mcpb as bytes. `host` is the Host the teacher used to reach this server, so the connector's address
+        is the one that already works from their computer."""
+        match = _HOST_RE.match(host or "")
+        name = match.group(1) if match else socket.gethostname()
+        manifest = json.loads((self.folder / "manifest.json").read_text(encoding="utf-8"))
+        manifest["user_config"]["staff_code"]["default"] = owner
+        manifest["user_config"]["server_url"]["default"] = f"http://{name}:{self.port}"
+        out = BytesIO()
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as bundle:
+            bundle.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
+            for f in self.FILES[1:]:
+                bundle.write(self.folder / f, f)
+        return out.getvalue()
 
 
 def backup_on_startup(store, backup_dir, keep=BACKUP_KEEP):
@@ -403,6 +454,7 @@ class SchoolSettings:
 class Handler(SimpleHTTPRequestHandler):
     store = None     # an ExamStore, set by main() or by the tests
     settings = None  # a SchoolSettings, set by main() or by the tests
+    claude = ClaudeExtension()  # the Claude Desktop extension download
 
     # Windows builds this map from the registry, which sometimes has .js as text/plain.
     extensions_map = {
@@ -552,8 +604,31 @@ class Handler(SimpleHTTPRequestHandler):
     def _not_found(self):
         self._json({"error": "Exam not found."}, 404)
 
+    def _claude_route(self):
+        """/claude/status and /claude/exam-assistant.mcpb?owner=ABC; returns False for anything else."""
+        url = urlparse(self.path)
+        if url.path == "/claude/status":
+            self._json({"available": self.claude.available()})
+            return True
+        if url.path == "/claude/exam-assistant.mcpb":
+            owner = normalise_owner(parse_qs(url.query).get("owner", [""])[0])
+            if not owner:
+                self._json({"error": BAD_OWNER}, 400)
+            elif not self.claude.available():
+                self._json({"error": "The Claude connector isn't running on this server."}, 404)
+            else:
+                body = self.claude.build(owner, self.headers.get("Host"))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Disposition", 'attachment; filename="exam-assistant.mcpb"')
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            return True
+        return False
+
     def do_GET(self):
-        if self._settings_route("GET"):
+        if self._settings_route("GET") or self._claude_route():
             return
         api = self._api()
         if api is None:
@@ -620,6 +695,7 @@ def main():
     DATA.mkdir(exist_ok=True)
     Handler.store = ExamStore(DATA / "exams.db")
     Handler.settings = SchoolSettings(DATA)
+    Handler.claude = ClaudeExtension()
     backup_on_startup(Handler.store, DATA / "backups")
     httpd = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     logger.info("Exam Assistant running: http://localhost:%d  (other staff: http://%s:%d)",

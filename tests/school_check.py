@@ -10,6 +10,8 @@ Exits non-zero on any failure.
 """
 
 import asyncio
+import json
+import zipfile
 import os
 import shutil
 import subprocess
@@ -68,10 +70,12 @@ def main() -> int:
     tmp = Path(tempfile.mkdtemp())
     shutil.copy(ROOT / "server.py", tmp)
     shutil.copytree(ROOT / "static", tmp / "static")
+    shutil.copytree(ROOT / "connector" / "desktop-extension", tmp / "connector" / "desktop-extension")
     app_port, connector_port = free_port(), free_port()
     app, connector = f"http://127.0.0.1:{app_port}", f"http://127.0.0.1:{connector_port}"
     quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
-    procs = [subprocess.Popen([sys.executable, str(tmp / "server.py"), str(app_port)], cwd=tmp, **quiet)]
+    procs = [subprocess.Popen([sys.executable, str(tmp / "server.py"), str(app_port)], cwd=tmp, **quiet,
+                              env={**os.environ, "CONNECTOR_PORT": str(connector_port)})]
     procs.append(subprocess.Popen([sys.executable, str(ROOT / "connector" / "server.py")], **quiet, env={
         **os.environ, "EXAM_SERVER": app, "EDITOR_URL": app + "/", "PORT": str(connector_port),
         "PUBLIC_URL": connector, "DATA_DIR": str(tmp / "connector")}))
@@ -94,6 +98,20 @@ def main() -> int:
             page = ctx.new_page()
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
+            # Installing: the button appears because the connector is running; the download is filled in.
+            page.goto(app + "/")
+            page.wait_for_selector("#claude-btn:not([hidden])", timeout=5000)
+            page.click("#claude-btn")
+            check("the install dialog shows the teacher's code", page.inner_text("#claude-code") == "ABC")
+            with page.expect_download() as download:
+                page.click("#claude-download")
+            bundle = zipfile.ZipFile(download.value.path())
+            config = json.loads(bundle.read("manifest.json"))["user_config"]
+            check("the extension is filled in", (config["staff_code"]["default"], config["server_url"]["default"])
+                  == ("ABC", f"http://127.0.0.1:{connector_port}"), config)
+            check("downloaded as exam-assistant.mcpb", download.value.suggested_filename == "exam-assistant.mcpb")
+            page.click("#claude button.primary")
+
             page.goto(link)  # the link Claude gives the teacher
             page.wait_for_selector(".qhead")
             check("the editor link opens the exam", "Factorise" in page.inner_text("#paper"))

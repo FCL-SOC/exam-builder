@@ -196,6 +196,7 @@ def main() -> int:
             page.wait_for_function("document.querySelector('#home-list').innerText.includes('Made by Claude')",
                                    timeout=8000)
             check("new exam appears in My exams", True)
+            check("no Use with Claude button without the connector", page.locator("#claude-btn").is_hidden())
             check("no page errors", not errors, errors)
             browser.close()
     finally:

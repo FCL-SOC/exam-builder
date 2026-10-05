@@ -55,7 +55,8 @@ New exams pick up these settings; existing exams keep their own copy of the cove
 ## Write exams with Claude
 
 Teachers can ask Claude to write a whole exam or change a single question, and watch the changes appear in their
-open editor. Run `setup-connector.bat` once on the server; teachers install the Claude Desktop extension. See the
+open editor. Run `setup-connector.bat` once on the server; teachers then install the Claude Desktop extension from the
+**Use with Claude** button. See the
 [teacher guide](connector/TEACHERS.md) and the [connector setup](connector/README.md). The connector is optional:
 without it, Exam Assistant still needs no packages and no internet connection.
 

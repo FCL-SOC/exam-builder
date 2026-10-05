@@ -43,9 +43,17 @@ Check it's running: open `http://<computer name>:7901/healthz` from a teacher's 
 
 ### Set up each teacher (once)
 
-Give teachers `desktop-extension/exam-assistant.mcpb`. They double-click it with Claude Desktop open, enter their
-staff code, and click Install. The connector address is filled in as `http://8801-openai-01:7901`; if the server
-moves, change it in the extension's settings, or edit `desktop-extension/manifest.json` and rebuild the bundle:
+Once the connector is running, Exam Assistant shows teachers a **Use with Claude** button. It downloads the
+extension with their staff code and the connector's address (the same server name they reached Exam Assistant by)
+already filled in, so in Claude Desktop they only click **Install**. `server.py` builds that download from the files
+in `desktop-extension/`; set `CONNECTOR_PORT` if the connector isn't on 7901.
+
+These downloads are built per teacher, so they can't be signed, and Claude Desktop may warn that the extension is
+from an unverified developer. If that's a problem, have an owner allow it (below), or sign the hand-deploy bundle
+with the school's code-signing certificate (`npx @anthropic-ai/mcpb sign`) and give teachers that instead.
+
+`desktop-extension/exam-assistant.mcpb` is the same extension without a staff code filled in, for deploying by hand.
+It defaults to `http://8801-openai-01:7901`; to change that, edit `desktop-extension/manifest.json` and rebuild:
 
 ```
 npx @anthropic-ai/mcpb pack connector/desktop-extension connector/desktop-extension/exam-assistant.mcpb

@@ -1,6 +1,7 @@
 """Run: python -m unittest discover tests   (standard library only)"""
 
 import json
+import socket
 import sqlite3
 import sys
 import tempfile
@@ -9,6 +10,8 @@ import unittest
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -115,6 +118,59 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(store.version("ABC", "exam-0001"), {"updated_at": "t", "updated_by": ""})
         store._conn.close()
         server.ExamStore(old)._conn.close()  # opening it again doesn't try to add the column twice
+
+
+class FakeConnector:
+    """Something answering /healthz like the Claude connector does."""
+
+    def __enter__(self):
+        class Healthy(server.SimpleHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+        self.httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), Healthy)
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        return self.httpd.server_address[1]
+
+    def __exit__(self, *exc):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class ClaudeExtensionTests(unittest.TestCase):
+    def test_available_only_while_the_connector_runs(self):
+        self.assertFalse(server.ClaudeExtension(port=free_port()).available())
+        with FakeConnector() as port:
+            self.assertTrue(server.ClaudeExtension(port=port).available())
+        self.assertFalse(server.ClaudeExtension(folder=Path(tempfile.mkdtemp()), port=port).available())
+
+    def test_bundle_is_filled_in_for_the_teacher(self):
+        ext = server.ClaudeExtension(port=7901)
+        with zipfile.ZipFile(BytesIO(ext.build("ABC", "8801-openai-01:7900"))) as bundle:
+            self.assertEqual(sorted(bundle.namelist()), ["icon.png", "manifest.json", "server/index.js"])
+            manifest = json.loads(bundle.read("manifest.json"))
+            self.assertEqual(bundle.read("server/index.js"), (server.EXTENSION_DIR / "server" / "index.js").read_bytes())
+        config = manifest["user_config"]
+        self.assertEqual((config["staff_code"]["default"], config["server_url"]["default"]),
+                         ("ABC", "http://8801-openai-01:7901"))
+        self.assertEqual(manifest["server"], json.loads((server.EXTENSION_DIR / "manifest.json").read_text())["server"])
+
+    def test_odd_host_headers_fall_back_to_this_computers_name(self):
+        ext = server.ClaudeExtension(port=7901)
+        for host, expect in (("10.1.2.3:7900", "http://10.1.2.3:7901"), ("[::1]:7900", "http://[::1]:7901"),
+                             ('x"><script>', f"http://{socket.gethostname()}:7901"), (None, f"http://{socket.gethostname()}:7901")):
+            with zipfile.ZipFile(BytesIO(ext.build("ABC", host))) as bundle:
+                url = json.loads(bundle.read("manifest.json"))["user_config"]["server_url"]["default"]
+            self.assertEqual(url, expect, host)
 
 
 class SettingsTests(unittest.TestCase):
@@ -233,6 +289,22 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/exams/exam-0001?owner=ABC")[1]["exam"]["title"], "v2")
         self.assertEqual(self.call("GET", "/api/exams/exam-0001/version?owner=XYZ")[0], 404)
         self.assertEqual(self.call("PUT", "/api/exams/exam-0001?owner=ABC&by=Robot!", {"title": "x"})[0], 400)
+
+    def test_claude_extension_download(self):
+        server.Handler.claude = server.ClaudeExtension(port=free_port())
+        self.assertEqual(self.call("GET", "/claude/status"), (200, {"available": False}))
+        self.assertEqual(self.call("GET", "/claude/exam-assistant.mcpb?owner=ABC")[0], 404)
+        with FakeConnector() as port:
+            server.Handler.claude = server.ClaudeExtension(port=port)
+            self.assertEqual(self.call("GET", "/claude/status"), (200, {"available": True}))
+            self.assertEqual(self.call("GET", "/claude/exam-assistant.mcpb?owner=a1")[0], 400)
+            req = urllib.request.Request(self.base + "/claude/exam-assistant.mcpb?owner=xyz", headers={"Host": "examserver:7900"})
+            with urllib.request.urlopen(req) as r:
+                self.assertIn("exam-assistant.mcpb", r.headers["Content-Disposition"])
+                manifest = json.loads(zipfile.ZipFile(BytesIO(r.read())).read("manifest.json"))
+        self.assertEqual(manifest["user_config"]["staff_code"]["default"], "XYZ")
+        self.assertEqual(manifest["user_config"]["server_url"]["default"], f"http://examserver:{port}")
+        server.Handler.claude = server.ClaudeExtension()
 
     def test_serves_frontend(self):
         with urllib.request.urlopen(self.base + "/") as r:
