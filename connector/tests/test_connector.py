@@ -1,6 +1,7 @@
 """Run: python -m unittest discover connector/tests   (needs connector/requirements.txt installed)"""
 
 import asyncio
+import base64
 import copy
 import json
 import os
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 CONNECTOR = Path(__file__).resolve().parent.parent
@@ -45,6 +47,12 @@ LINES = {"type": "lines", "n": 3}
 def graph(*exprs, **extra):
     return {"type": "graph", "x": {"min": -5, "max": 5}, "y": {"min": -5, "max": 5},
             "functions": [{"expr": e} for e in exprs], **extra}
+
+
+def unpack(packed):
+    """The editor's #data= import: base64url → raw DEFLATE → JSON."""
+    data = base64.urlsafe_b64decode(packed + "=" * (-len(packed) % 4))
+    return json.loads(zlib.decompress(data, -15).decode("utf-8"))
 
 
 class ValidateTests(unittest.TestCase):
@@ -192,7 +200,7 @@ class PackTests(unittest.TestCase):
     def test_round_trip_and_defaults(self):
         r = exam_format.validate(SAMPLE)
         n = exam_format.normalise(SAMPLE, r["total_marks"])
-        self.assertEqual(exam_format.unpack(exam_format.pack(n)), n)
+        self.assertEqual(unpack(exam_format.pack(n)), n)
         self.assertEqual(n["total_marks"], 20)
         self.assertFalse(n["shared"])
         self.assertNotIn("task", n)  # the school's default task wording applies
@@ -250,7 +258,7 @@ class ServerTests(unittest.TestCase):
         self.assertIn("20 marks · 7 questions", page.text)
         hrefs = re.findall(r'href="([^"]+)#data=([A-Za-z0-9_-]+)"', page.text)
         self.assertEqual([h for h, _ in hrefs], ["http://examserver:7900/", "https://fcl-soc.github.io/exam-builder/"])
-        opened = exam_format.unpack(hrefs[0][1])
+        opened = unpack(hrefs[0][1])
         self.assertEqual(opened["total_marks"], 20)
         self.assertEqual(opened["sections"][0]["questions"][0]["blocks"][1]["correct"], 1)
         self.assertEqual(web.get("/e/nope").status_code, 404)

@@ -109,7 +109,7 @@ class StoreTests(unittest.TestCase):
     def test_database_from_before_updated_by_is_migrated(self):
         old = self.dir / "old.db"
         conn = sqlite3.connect(old)
-        conn.executescript(server.SCHEMA)
+        conn.executescript(server.SCHEMA_TEMPLATE.format(table="exams"))
         conn.execute("INSERT INTO exams (exam_uid, owner, title, created_at, updated_at, body) "
                      "VALUES ('exam-0001', 'ABC', 'T', 't', 't', '{}')")
         conn.commit()

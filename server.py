@@ -80,7 +80,6 @@ CREATE TABLE IF NOT EXISTS {table} (
 CREATE INDEX IF NOT EXISTS idx_{table}_owner ON {table}(owner, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_{table}_shelf ON {table}(shared, learning_area);
 """
-SCHEMA = SCHEMA_TEMPLATE.format(table="exams")
 # Details shown on the exam lists come straight out of the saved exam JSON (no schema change needed).
 _DETAILS = {"topic": "unit", "assessment_type": "assessment_type", "year_level": "year_level", "task": "task",
             "semester": "semester", "year": "year", "total_marks": "total_marks"}
@@ -93,7 +92,6 @@ def _summary(details):
         f"json_extract(body, '$.{path}') AS {alias}" for alias, path in details.items())
 
 
-_SUMMARY = _summary(_DETAILS)
 _BY_RE = re.compile(r"^[a-z]{0,20}$")  # who made a save: "" for the editor, "claude" for the connector
 
 
@@ -524,6 +522,15 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send(self, body, content_type, **headers):
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        for name, value in headers.items():
+            self.send_header(name.replace("_", "-"), value)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _read_body(self, limit):
         """The request body as bytes, or None after sending the error."""
         try:
@@ -576,14 +583,8 @@ class Handler(SimpleHTTPRequestHandler):
             xlsx = path.endswith(".xlsx")
             body = importer.template_xlsx() if xlsx else importer.template_csv()
             name = "exam-questions-template." + ("xlsx" if xlsx else "csv")
-            self.send_response(200)
-            self.send_header("Content-Type",
-                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                             if xlsx else "text/csv; charset=utf-8")
-            self.send_header("Content-Disposition", f'attachment; filename="{name}"')
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._send(body, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                       if xlsx else "text/csv; charset=utf-8", Content_Disposition=f'attachment; filename="{name}"')
             return True
         if path != "/api/import" or method != "POST":
             return False
@@ -613,13 +614,8 @@ class Handler(SimpleHTTPRequestHandler):
             if not logo:
                 self._json({"error": "No logo uploaded."}, 404)
                 return True
-            body = logo.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", next(t for t, (ext, _) in LOGO_TYPES.items() if ext == logo.suffix))
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.end_headers()
-            self.wfile.write(body)
+            self._send(logo.read_bytes(), next(t for t, (ext, _) in LOGO_TYPES.items() if ext == logo.suffix),
+                       X_Content_Type_Options="nosniff")
             return True
         if not path.startswith("/api/settings"):
             return False
@@ -699,13 +695,8 @@ class Handler(SimpleHTTPRequestHandler):
             elif not self.claude.available():
                 self._json({"error": "The Claude connector isn't running on this server."}, 404)
             else:
-                body = self.claude.build(owner, self.headers.get("Host"))
-                self.send_response(200)
-                self.send_header("Content-Type", "application/octet-stream")
-                self.send_header("Content-Disposition", 'attachment; filename="exam-assistant.mcpb"')
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self._send(self.claude.build(owner, self.headers.get("Host")), "application/octet-stream",
+                           Content_Disposition='attachment; filename="exam-assistant.mcpb"')
             return True
         return False
 
@@ -785,7 +776,6 @@ def main():
     Handler.store = ExamStore(DATA / "exams.db")
     Handler.plans = ExamStore(DATA / "exams.db", table="lesson_plans", details=_PLAN_DETAILS)
     Handler.settings = SchoolSettings(DATA)
-    Handler.claude = ClaudeExtension()
     backup_on_startup(Handler.store, DATA / "backups")
     httpd = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     logger.info("Exam Assistant running: http://localhost:%d  (other staff: http://%s:%d)",
