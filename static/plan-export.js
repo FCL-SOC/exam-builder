@@ -122,6 +122,8 @@ function compassHtml(text) {
   h = h.replace(/\*([^*\n]+)\*/g, "<i>$1</i>");
   h = h.replace(/^(\d+)\.\s(.+)$/gm, '<span style="display:block;padding-left:20px;"><b>$1.</b>&nbsp;$2</span>');
   h = h.replace(/^-\s(.+)$/gm, '<span style="display:block;padding-left:20px;text-indent:-12px;">&bull;&nbsp;$1</span>');
+  // A bullet or numbered line is already a line of its own: a <br> after it would add a blank line.
+  h = h.replace(/(<span style="display:block;[^"]*">.*<\/span>)\n/g, "$1");
   h = h.replace(/\n/g, "<br>");
   return restoreDollars(h);
 }

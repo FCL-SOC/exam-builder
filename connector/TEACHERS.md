@@ -1,6 +1,7 @@
-# Writing exams with Claude
+# Writing exams and lesson plans with Claude
 
-Claude can write a whole exam for you, or change one question, while you watch it appear in Exam Assistant.
+Claude can write a whole exam or lesson plan for you, or change one question or section, while you watch it
+appear in Exam Assistant.
 It works at school, in the Claude app on your computer.
 
 ## Set it up (once, about two minutes)
@@ -22,9 +23,19 @@ Put Claude on one side of your screen and Exam Assistant on the other. Then ask 
 - *"Add two questions on completing the square after question 6."*
 - *"Change the cover to Semester 2 and allow CAS calculators."*
 
+For a lesson plan, say the class, the day and the topic:
+
+- *"Lesson plan for 10MM1 on Tuesday: completing the square. Textbook exercise 4F."*
+- *"Next lesson for 10MM1 is Wednesday, sketching quadratics."* (Claude reads your earlier plan for that class.)
+- *"In Thursday's 9SC2 plan, make the Do Now shorter."*
+
+**Give Claude your own material** for plans that fit your class: attach your unit plan, the textbook pages or a
+worksheet (drag the file into the chat), or paste a link or your notes. Claude follows the LEARN framework and the
+Victorian Curriculum 2.0, and uses what you give it first.
+
 The first time, Claude may ask permission to use Exam Assistant: click **Allow**.
 
-For a new exam, Claude gives you a link: click it once to open the exam. After that, Claude's changes appear on
+For a new exam or lesson plan, Claude gives you a link: click it once to open it. After that, Claude's changes appear on
 your screen within a couple of seconds, and the questions it changed flash yellow.
 
 ## Good to know
@@ -34,7 +45,10 @@ your screen within a couple of seconds, and the questions it changed flash yello
 - **Changed your mind?** Press **Undo** in Exam Assistant, or tell Claude *"undo that"*.
 - **Pictures:** Claude can't add images. It will tell you where one should go; drag your image onto the question.
 - **How Claude writes questions** (command terms, marks, answer space) comes from the school's question style
-  guide. Whoever looks after Exam Assistant can change it in **School settings**.
+  guide, and lesson plans from the lesson plan guide. Whoever looks after Exam Assistant can change both in
+  **School settings**.
+- **Lesson plans into Compass:** open the plan, click **Copy for Compass**, then paste into the lesson plan in
+  Compass. **Download Word** gives you the same table as a document.
 - **Always read it through before printing:** check the questions, the marks and the answers. Correct
   multiple-choice answers are shown in green in the editor and are never printed.
 

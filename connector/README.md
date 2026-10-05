@@ -72,11 +72,20 @@ first, and can deploy it to everyone ([Claude Help Centre](https://support.claud
 | `create_exam` | A whole new exam in one go |
 | `edit_exam` | Changes applied all or nothing: `add`, `replace`, `remove`, `move` questions and parts; `add_section`, `update_section`; `update_details` (cover) |
 | `restore_version` | Puts the exam back as it was before Claude's last change(s) |
+| `get_lesson_plan_format` | The school's lesson plan guide: LEARN sections, Victorian Curriculum 2.0, formatting |
+| `list_lesson_plans`, `get_lesson_plan` | The teacher's lesson plans, and one plan's text |
+| `create_lesson_plan`, `edit_lesson_plan` | A new plan; or whole sections and details replaced (the rest kept) |
+| `restore_lesson_plan` | Puts the plan back as it was before Claude's last change(s) |
 
 Claude writes questions by the school's **question style guide**: command terms (as in the VCAA glossary), the
 marks each usually earns, answer space per mark, multiple-choice conventions and wording. It ships as
 [`docs/question-style-guide.md`](../docs/question-style-guide.md); admins can rewrite it in **School settings →
 Questions written by Claude**, and Claude reads the current version each time it writes.
+
+Lesson plans follow the **lesson plan guide** ([`docs/lesson-plan-guide.md`](../docs/lesson-plan-guide.md), adapted
+from LP-Generator's section rules), editable in **School settings → Lesson plans written by Claude**. Each section is
+checked for what would break in Compass or Word (unpaired `$`, LaTeX outside maths, split `$$` lines, `#` headings,
+indented lists) before it is saved.
 
 Content is checked with the editor's own rules (including its graph-expression parser) before anything is saved.
 Only problems in what Claude changed stop a change; a teacher's own half-finished questions don't. Images stay in
@@ -118,4 +127,5 @@ python -m unittest discover connector/tests    # both modes, against a real Exam
 python tests/browser_check.py [--server]       # a #data= link opens in Chromium        (these need Playwright)
 python tests/live_check.py                     # live updates and merging in the editor
 python tests/school_check.py                   # school mode end to end, with the teacher watching
+python tests/plans_check.py                    # lesson plans: live updates, merging, Copy for Compass, Word
 ```

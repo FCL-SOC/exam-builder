@@ -142,10 +142,12 @@ get_exam again before changing a question they have been working on.
 Existing images appear as refs ("img-…") that you can keep, move or remove. New images can only be added by the
 teacher in the editor; say where one should go. restore_version undoes your last change if it was wrong.
 
-Lesson plans (LEARN framework) are in the same app: call get_lesson_plan_format once, then create_lesson_plan, or
-list_lesson_plans / get_lesson_plan / edit_lesson_plan for an existing one. edit_lesson_plan replaces whole
-sections, so send only the sections asked about; the rest are kept. Give the teacher the editor_link, where they can
-copy the plan into Compass or download it as a Word document.
+Lesson plans (LEARN framework, Victorian Curriculum 2.0) are in the same app: call get_lesson_plan_format once and
+follow it. Before writing a new plan, list_lesson_plans: if this lesson already has one, offer to change it rather
+than making a second; read the class's previous plan so today's builds on it. Use any files or links the teacher
+shares. Then create_lesson_plan, or edit_lesson_plan for an existing one (it replaces whole sections, so send only
+the sections asked about; the rest are kept). Give the teacher the editor_link, where they can copy the plan into
+Compass or download it as a Word document.
 
 {TALKING_TO_TEACHERS}
 """
