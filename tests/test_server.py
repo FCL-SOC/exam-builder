@@ -264,6 +264,8 @@ class HttpTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         server.Handler.store = server.ExamStore(Path(self.tmp.name) / "exams.db")
+        server.Handler.plans = server.ExamStore(Path(self.tmp.name) / "exams.db", table="lesson_plans",
+                                                details=server._PLAN_DETAILS)
         server.Handler.settings = server.SchoolSettings(Path(self.tmp.name))
         self.httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
@@ -273,6 +275,7 @@ class HttpTests(unittest.TestCase):
         self.httpd.shutdown()
         self.httpd.server_close()
         server.Handler.store._conn.close()
+        server.Handler.plans._conn.close()
         self.tmp.cleanup()
 
     def call(self, method, path, body=None, headers=None, raw=None):
@@ -332,6 +335,22 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(manifest["user_config"]["staff_code"]["default"], "XYZ")
         self.assertEqual(manifest["user_config"]["server_url"]["default"], f"http://examserver:{port}")
         server.Handler.claude = server.ClaudeExtension()
+
+    def test_lesson_plans_are_stored_like_exams_but_separately(self):
+        plan = {"class_code": "10MM1", "subject": "Mathematics", "topic": "Quadratics", "title": "Quadratics",
+                "sections": {"L": "**Learning Intentions**", "E": "", "A": "", "R": "", "N": ""}}
+        status, first = self.call("PUT", "/api/plans/plan-0001?owner=ABC", plan)
+        self.assertEqual(status, 200)
+        self.assertEqual(self.call("GET", "/api/exams?owner=ABC")[1], [])  # not mixed in with exams
+        rows = self.call("GET", "/api/plans?owner=ABC")[1]
+        self.assertEqual((rows[0]["uid"], rows[0]["class_code"], rows[0]["topic"]), ("plan-0001", "10MM1", "Quadratics"))
+        v1 = urllib.parse.quote(first["updated_at"])
+        self.assertEqual(self.call("PUT", f"/api/plans/plan-0001?owner=ABC&base={v1}&by=claude", plan)[0], 200)
+        self.assertEqual(self.call("PUT", f"/api/plans/plan-0001?owner=ABC&base={v1}", plan)[0], 409)
+        self.assertEqual(self.call("GET", "/api/plans/plan-0001/version?owner=ABC")[1]["updated_by"], "claude")
+        self.assertEqual(self.call("GET", "/api/plans/plan-0001?owner=XYZ")[0], 404)
+        self.assertEqual(self.call("DELETE", "/api/plans/plan-0001?owner=ABC")[0], 200)
+        self.assertEqual(self.call("PUT", "/api/nonsense/plan-0001?owner=ABC", plan)[0], 400)
 
     def test_serves_frontend(self):
         with urllib.request.urlopen(self.base + "/") as r:
