@@ -84,7 +84,7 @@ def mixed_exam(sample: dict, seed: int = 2) -> dict:
         if si == 0:
             qs = [{"marks": 1, "blocks": copy.deepcopy(mc), "parts": []} for _ in range(4)] + qs
         sections.append({"name": "ABC"[si], "description": "Mixed", "instructions": "Answer all questions.", "questions": qs})
-    return {**{k: v for k, v in sample.items() if k != "sections"}, "sections": sections}
+    return {**{k: v for k, v in sample.items() if k != "sections"}, "unit": f"Mixed check {seed}", "sections": sections}
 
 
 def print_matches_preview(browser, url: str) -> str | None:
