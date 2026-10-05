@@ -58,8 +58,11 @@ won't print until every deepest item has marks above 0. Half marks are allowed.
 ### Text and maths
 
 - `$x^2 + 1$` is inline maths. Every `$` must pair up.
-- **Money:** write `\$12.50` (backslash dollar). In JSON that is `"\\$12.50"`. A bare `$` starts maths.
+- **Money:** write `\$12.50`: one backslash, then the dollar sign. A bare `$` starts maths.
 - Use LaTeX inside `$...$`: `$\frac{3}{4}$`, `$\sqrt{2}$`, `$\pi r^2$`, `$\text{m s}^{-1}$`, `$\le$`.
+- **One backslash, not two.** The text itself is `\$25` and `\frac`. In JSON *source* (like the example file below)
+  each backslash is written doubled (`"\\$25"`), but if you pass the exam to a tool, the tool's JSON encoding does
+  that for you: doubling it yourself stores two backslashes, which print as a stray `\` and break the maths.
 
 ### Multiple choice
 

@@ -243,6 +243,21 @@ def _parse_numbers(text: str) -> list[float]:
     return vals
 
 
+# A doubled backslash before $ or before a LaTeX command: escaped twice by mistake (\\frac, \\$25). It prints a stray
+# backslash and breaks the maths. A real line break (\\ followed by a space, a newline or another backslash, as in
+# aligned equations) is left alone.
+_LATEX_COMMANDS = ("frac", "dfrac", "tfrac", "sqrt", "text", "mathrm", "times", "div", "pm", "mp", "cdot", "pi", "theta",
+                   "alpha", "beta", "gamma", "delta", "lambda", "mu", "sigma", "le", "leq", "ge", "geq", "ne", "neq",
+                   "approx", "circ", "degree", "infty", "sin", "cos", "tan", "log", "ln", "left", "right", "quad",
+                   "overline", "vec", "hat", "bar", "angle", "triangle", "parallel", "perp", "begin", "end")
+_DOUBLED = re.compile(r"(?<!\\)\\\\(\$|(?:" + "|".join(_LATEX_COMMANDS) + r")(?![A-Za-z]))")
+
+
+def _doubled_backslash(text: str) -> str | None:
+    m = _DOUBLED.search(str(text or ""))
+    return m.group(0) if m else None
+
+
 def _unpaired_dollars(text: str) -> bool:
     return str(text or "").replace("\\$", "").count("$") % 2 == 1
 
@@ -259,7 +274,15 @@ class _Checker:
         self.warnings.append(f"{where}: {msg}")
 
     # -- text
+    def doubled(self, where: str, text: str) -> None:
+        found = _doubled_backslash(text)
+        if found:
+            single = found[1:]
+            self.err(where, f"has a doubled backslash: {found} should be {single}. Use one backslash; JSON encoding of "
+                            "the tool call adds the escaping itself. Two print as a stray backslash and break the maths.")
+
     def rich(self, where: str, text: str) -> None:
+        self.doubled(where, text)
         if _unpaired_dollars(text):
             self.err(where, "has an unpaired $. $...$ marks inline maths; write money as \\$12.50 (backslash dollar).")
 
@@ -269,6 +292,7 @@ class _Checker:
         if t == "text":
             self.rich(where, b.get("value", ""))
         elif t == "equation":
+            self.doubled(where, b.get("value", ""))
             if "$" in b.get("value", "").replace("\\$", ""):
                 self.err(where, "equation values are LaTeX without $ delimiters.")
         elif t == "table":
@@ -395,10 +419,23 @@ class _Checker:
         return float(marks)
 
 
+_STRING_FIELDS = ("semester", "year", "year_level")
+
+
+def coerce(cover: Any) -> Any:
+    """Cover fields the editor keeps as strings, accepted as numbers too (semester 2 → "2"), in place."""
+    if isinstance(cover, dict):
+        for key in _STRING_FIELDS:
+            if isinstance(cover.get(key), int) and not isinstance(cover.get(key), bool):
+                cover[key] = str(cover[key])
+    return cover
+
+
 def validate(exam: Any) -> dict:
     """{ok, errors, warnings, total_marks, questions}. ok means it opens and prints cleanly in the editor."""
     if not isinstance(exam, dict):
         return {"ok": False, "errors": ["(exam): must be a JSON object."], "warnings": [], "total_marks": 0, "questions": 0}
+    coerce(exam)
     size = len(json.dumps(exam, separators=(",", ":")).encode())
     if size > MAX_EXAM_BYTES:
         return {"ok": False, "errors": [f"(exam): {size // 1000} KB is over the {MAX_EXAM_BYTES // 1000} KB limit."],

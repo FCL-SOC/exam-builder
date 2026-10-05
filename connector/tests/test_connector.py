@@ -98,6 +98,15 @@ class ValidateTests(unittest.TestCase):
         self.assertWarning(exam(q({"type": "text", "value": "Explain."})), "no space to answer")
         self.assertTrue(self.check(exam(q({"type": "table", "rows": [["x", "1"], ["y", ""]]})))["warnings"] == [])
 
+    def test_doubled_backslashes(self):
+        self.assertError(exam(q({"type": "text", "value": "Sold for \\\\$25."}, LINES)), "doubled backslash")
+        self.assertError(exam(q({"type": "text", "value": "Area $40\\\\ \\\\text{m}^2$"}, LINES)), "doubled backslash")
+        self.assertError(exam(q({"type": "equation", "value": "\\\\frac{1}{2}"}, LINES)), "doubled backslash")
+        self.assertError(exam(q({"type": "choices", "options": ["\\\\$5", "\\$6"], "correct": 0})), r"options\[0\]: has a doubled")
+        ok = exam(q({"type": "text", "value": "Sold for \\$25, area $40\\ \\text{m}^2$."},
+                    {"type": "equation", "value": "\\begin{aligned} 2x &= 7 \\\\ x &= 3.5 \\end{aligned}"}, LINES))
+        self.assertTrue(self.check(ok)["ok"], self.check(ok))
+
     def test_dollars(self):
         self.assertError(exam(q({"type": "text", "value": "It costs $5."}, LINES)), "unpaired \\$")
         self.assertTrue(self.check(exam(q({"type": "text", "value": r"It costs \$5 or $\$6$ and $x^2$."}, LINES)))["ok"])
@@ -219,7 +228,7 @@ class ServerTests(unittest.TestCase):
 
     def test_format_has_guide_example_and_schema(self):
         text = self.call("get_exam_format").content[0].text
-        for needle in ("# Exam format", "## Complete example", "Functions and Statistics", "## JSON Schema", "\\\\$12.50"):
+        for needle in ("# Exam format", "## Complete example", "Functions and Statistics", "## JSON Schema", "One backslash, not two"):
             self.assertIn(needle, text)
 
     def test_link_flow(self):

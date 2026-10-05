@@ -437,6 +437,7 @@ def apply_changes(exam: dict, changes: list[BaseModel], images: dict[str, str]) 
             t["node"].update(ch.changes)
             touched.add(ch.id)
         elif isinstance(ch, UpdateDetails):
+            exam_format.coerce(ch.changes)
             errors = exam_format.fragment_errors("details", ch.changes, where)
             if errors:
                 raise ChangeRejected(errors)

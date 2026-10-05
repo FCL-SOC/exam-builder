@@ -214,6 +214,9 @@ class SchoolModeTests(unittest.TestCase):
         self.assertEqual((exam["unit"], exam["writing_min"], exam["calculator"], exam["total_marks"]),
                          ("Quadratics", 70, "cas", 25))
         self.assertTrue(exam["title"].startswith("Quadratics"))
+        r = self.call("edit_exam", exam_id=uid, changes=[{"op": "update_details", "changes": {"semester": 2, "year": 2027}}])
+        self.assertTrue(r["ok"], r)  # numbers accepted for the fields the editor keeps as strings
+        self.assertEqual((self.saved(uid)["exam"]["semester"], self.saved(uid)["exam"]["year"]), ("2", "2027"))
         r = self.call("edit_exam", exam_id=uid, changes=[{"op": "update_details", "changes": {"calculator": "abacus"}}])
         self.assertFalse(r["ok"])
         r = self.call("edit_exam", exam_id=uid, changes=[{"op": "update_section", "id": a, "changes": {"colour": "red"}}])
