@@ -81,6 +81,11 @@ EXAMPLE = json.loads((ROOT / "examples" / "sample_exam.json").read_text(encoding
 FORMAT_TEXT = (f"{GUIDE}\n\n## Complete example\n\n```json\n{json.dumps(EXAMPLE, indent=1)}\n```\n\n"
                f"## JSON Schema\n\n```json\n{json.dumps(exam_format.SCHEMA, separators=(',', ':'))}\n```\n")
 
+TALKING_TO_TEACHERS = """\
+The teacher is not technical. Talk about the exam the way it looks on the page ("Section B, question 2, part b"), never
+about ids, JSON, tools, formats, validation or errors you fixed along the way. If something can't be done, say so
+plainly and say what they can do instead. Keep replies short: what you did, the link, and anything they should check."""
+
 WRITING_RULES = """\
 Marks go on the deepest parts only. Never type question numbers, part letters or marks into text; they are
 automatic. Money is written \\$12.50 (a bare $ starts maths). Graph expressions are in x and use ^."""
@@ -95,6 +100,8 @@ Writes exams, tests and SACs that open in Exam Assistant, a school's A4 exam edi
    change anything before printing. Mention that the online editor doesn't save: print or save as PDF, or use the
    school server option if the link offers one.
 Images can't be included; say where a diagram or photo should go and the teacher can add it in the editor.
+
+{TALKING_TO_TEACHERS}
 """
 
 SCHOOL_INSTRUCTIONS = f"""\
@@ -114,6 +121,8 @@ get_exam again before changing a question they have been working on.
 {WRITING_RULES}
 Existing images appear as refs ("img-…") that you can keep, move or remove. New images can only be added by the
 teacher in the editor; say where one should go. restore_version undoes your last change if it was wrong.
+
+{TALKING_TO_TEACHERS}
 """
 
 mcp = MCPServer(name="exam-assistant", title="Exam Assistant",
@@ -147,8 +156,8 @@ if MODE == "school":
         raw = (ctx.headers or {}).get("x-staff-code") or os.environ.get("STAFF_CODE", "")
         code = raw.strip().upper()
         if not re.fullmatch(r"[A-Z]{3}", code):
-            raise ToolError("Your staff code isn't set. In Claude Desktop open Settings → Extensions → Exam Assistant, "
-                            "enter your three-letter staff code, and try again.")
+            raise ToolError("Your staff code isn't set up. In Exam Assistant, type your staff code, click Use with Claude, "
+                            "and install the download again: your code is filled in for you.")
         return code
 
     def guarded(fn):

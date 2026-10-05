@@ -433,14 +433,15 @@
     <p>Ask Claude to write an exam or change a question, and watch it appear here as it works.</p>
     <p class="bad" id="claude-nocode" hidden>Type your staff code in the top bar first, then open this again.</p>
     <ol id="claude-steps">
-      <li>Open <b>Claude Desktop</b> on this computer.</li>
-      <li><a id="claude-download" class="dl" download="exam-assistant.mcpb">Download the Exam Assistant extension</a>
-        and open the file.</li>
+      <li>Open the <b>Claude</b> app on this computer and sign in. (Don't have it? Get it from
+        <a href="https://claude.ai/download" target="_blank" rel="noopener">claude.ai/download</a>.)</li>
+      <li><a id="claude-download" class="dl" download="exam-assistant.mcpb">Download Exam Assistant for Claude</a>
+        then open the downloaded file.</li>
       <li>Claude shows an install screen with your staff code (<b id="claude-code"></b>) already filled in.
-        Click <b>Install</b>.</li>
+        Click <b>Install</b>. If it says the extension isn't verified, that's expected: it's the school's own.</li>
     </ol>
-    <p class="note">Then ask Claude, for example: <i>"Write a 30-mark Year 9 Science test on cells."</i>
-      It works on the school network, in Claude Desktop.</p>
+    <p class="note">Then just ask Claude, for example: <i>"Write a 30-mark Year 9 Science test on cells."</i>
+      If Claude asks for permission to use Exam Assistant, click <b>Allow</b>. Works at school, in the Claude app.</p>
     <div class="btns"><span class="grow"></span><button class="primary">Done</button></div>
   </form>
 </dialog>
@@ -661,7 +662,7 @@ async function save() {
     dirty = true;
     if (e.status === 409) clash = true;  // saved somewhere else meanwhile: merge, then save again
     else {
-      setStatus(`Not saved — retrying (${e.message})`, true);
+      setStatus(`Not saved yet — trying again (${e.message})`, true);
       clearTimeout(saveTimer);
       saveTimer = setTimeout(save, 5000);
     }
@@ -733,7 +734,7 @@ async function pullRemote() {
     const ignore = { title: 0, total_marks: 0 };
     if (same({ ...exam, ...ignore }, { ...theirs, ...ignore })) { dirty = false; clearTimeout(saveTimer); }
     else scheduleSave(false);  // this tab's own edits still need saving on top
-    const who = r.updated_by === "claude" ? "Claude" : "another tab";
+    const who = r.updated_by === "claude" ? "Claude" : "another window";
     notice = report.whole ? `replaced by ${who}'s version: Undo brings yours back`
       : report.conflicts ? `you and ${who} changed the same thing, so your version was kept` : notice;
     setStatus(notice ? `Updated by ${who} · ${notice}` : `Updated by ${who}`);

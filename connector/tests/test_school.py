@@ -109,7 +109,7 @@ class SchoolModeTests(unittest.TestCase):
 
     def test_staff_code_is_required(self):
         del os.environ["STAFF_CODE"]
-        self.assertIn("Settings → Extensions → Exam Assistant", self.call("list_exams")["tool_error"])
+        self.assertIn("click Use with Claude", self.call("list_exams")["tool_error"])
 
     def test_create_saves_into_the_library_with_school_defaults(self):
         http("POST", "settings/pin", {"pin": "1234"})

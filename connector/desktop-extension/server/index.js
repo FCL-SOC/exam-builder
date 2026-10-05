@@ -30,7 +30,8 @@ function failure(id, text) {
 
 async function forward(message) {
   const id = message.id;
-  if (!BASE) return failure(id, "The Exam Assistant address isn't set. In Claude Desktop open Settings → Extensions → Exam Assistant.");
+  if (!BASE) return failure(id, "Exam Assistant isn't set up yet: the school server address is missing. Download Exam " +
+    "Assistant for Claude again from the Use with Claude button in Exam Assistant, and install it.");
   const headers = { "Content-Type": "application/json", Accept: "application/json, text/event-stream" };
   if (STAFF_CODE) headers["X-Staff-Code"] = STAFF_CODE;
   if (protocolVersion) headers["MCP-Protocol-Version"] = protocolVersion;
@@ -42,14 +43,15 @@ async function forward(message) {
     });
   } catch (e) {
     log("can't reach", BASE, e.message);
-    return failure(id, `Can't reach Exam Assistant at ${BASE}. It only works on the school network: check you're ` +
-      "connected (or on the VPN), then try again.");
+    return failure(id, "Can't reach Exam Assistant. It only works on the school network: check this computer is " +
+      "connected at school (or on the school VPN), then try again.");
   }
   if (response.status === 202 || response.status === 204) return;  // a notification was accepted
   const text = await response.text();
   if (!response.ok) {
     log("HTTP", response.status, text.slice(0, 200));
-    return failure(id, `Exam Assistant answered with an error (HTTP ${response.status}). ${text.slice(0, 200)}`);
+    return failure(id, "Exam Assistant on the school server couldn't do that right now. Try again in a minute; if it " +
+      `keeps happening, ask IT to check the Claude connector is running (it answered ${response.status}).`);
   }
   const replies = (response.headers.get("content-type") || "").includes("text/event-stream")
     ? text.split(/\r?\n/).filter(line => line.startsWith("data:")).map(line => JSON.parse(line.slice(5)))

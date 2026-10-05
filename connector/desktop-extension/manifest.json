@@ -76,13 +76,13 @@
     "staff_code": {
       "type": "string",
       "title": "Your staff code",
-      "description": "Your three-letter staff code, the one you type into Exam Assistant (for example ABC). Claude works on your exams.",
+      "description": "Already filled in: the three-letter code you use in Exam Assistant. Claude works on your exams.",
       "required": true
     },
     "server_url": {
       "type": "string",
-      "title": "Exam Assistant connector address",
-      "description": "Leave this as it is unless IT tells you otherwise.",
+      "title": "School server address",
+      "description": "Already filled in. Only change it if IT asks you to.",
       "default": "http://8801-openai-01:7901",
       "required": true
     }

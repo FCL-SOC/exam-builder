@@ -111,7 +111,7 @@ class DesktopExtensionTests(unittest.TestCase):
             return r.is_error, r.content[0].text
         is_error, text = self.run_client(staff_code="", steps=steps)
         self.assertTrue(is_error)
-        self.assertIn("Settings → Extensions → Exam Assistant", text)
+        self.assertIn("click Use with Claude", text)
 
     def test_off_the_school_network(self):
         """Nothing listening: the proxy answers with a message that says what to do."""
