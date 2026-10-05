@@ -75,7 +75,8 @@ def texts(exam):
 
 def main() -> int:
     tmp = Path(tempfile.mkdtemp())
-    shutil.copy(ROOT / "server.py", tmp)
+    for name in ("server.py", "importer.py"):
+        shutil.copy(ROOT / name, tmp)
     shutil.copytree(ROOT / "static", tmp / "static")
     port = free_port()
     proc = subprocess.Popen([sys.executable, str(tmp / "server.py"), str(port)], cwd=tmp,

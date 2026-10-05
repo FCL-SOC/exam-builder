@@ -44,6 +44,9 @@
 
   /* ---------- home ---------- */
   #home { flex: 1; overflow: auto; padding: 24px; }
+  #import-box { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; margin-bottom: 18px; background: #fff; }
+  #import-box p { margin: 0 0 8px; }
+  #import-box .bad { color: var(--red); font-weight: 600; }
   .home-inner { max-width: 900px; margin: 0 auto; }
   .tabs { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
   .tabs button.on { background: var(--red); color: #fff; border-color: var(--red); }
@@ -79,7 +82,7 @@
      paginate() puts one at the top of each page and alternates the side, so a double-sided print keeps it
      against the spine. It stands in the page margin, so the text column keeps its full width. */
   .dnwa { position: relative; height: 0; }
-  .dnw { position: absolute; top: 0; height: 266mm; width: 15mm; background: #404040; color: #fff;
+  .dnw { position: absolute; top: 0; height: 266mm; width: 13mm; background: #404040; color: #fff;
          writing-mode: vertical-rl; font: 8pt Arial, sans-serif;
          display: flex; align-items: center; justify-content: center;
          print-color-adjust: exact; -webkit-print-color-adjust: exact; }
@@ -123,6 +126,9 @@
   .eq { text-align: center; margin: 2mm 0; font-size: 12pt; }
   .imgbox { margin: 2mm auto; max-width: 100%; }
   .imgbox .img { display: block; width: 100%; }
+  /* An imported picture that hasn't been added yet: the description, on screen only. */
+  .img-todo { display: flex; align-items: center; justify-content: center; min-height: 20mm; padding: 4mm;
+              border: 1.5px dashed #c8b89a; border-radius: 4px; color: #8a7a5a; font-style: italic; text-align: center; }
   .ln > div { border-bottom: 1px solid #000; height: var(--line-gap); }
   .box { border: 1px solid #000; margin: 2mm 0; }
   .mc { display: grid; gap: 1.5mm; margin: 2mm 0 1mm; }  /* one option per row */
@@ -290,6 +296,7 @@
     .sec-head:has(.desc:empty) .sep, .unitwrap:has(.unit:empty) { display: none; }
     #paper { zoom: 1 !important; }
     .mcl.is-correct { background: none; color: #000; }  /* the answer key never prints */
+    .img-todo { display: none !important; }  /* a picture that was never added leaves a gap, not a note */
     .pgap { display: none; }
     #graph-panel, #palette { display: none !important; }
     .pgap.brk { display: block; height: 0 !important; break-before: page; }
@@ -301,10 +308,13 @@
      AND lets us alternate: a left-hand page carries it on its right edge and vice versa, so it always falls by
      the spine. paginate() switches the whole sheet off by setting media="not all" when the exam turns it off. -->
 <style id="nowrite" media="print">
+  /* The margin box fills its margin, so the strip would touch the text. Its own margin is the only thing
+     Chrome honours here (width and background-clip are ignored): 2mm on the inner side keeps the text clear. */
   @page :left  { @right-middle { content: "Do not write in this area."; background: #404040; color: #fff;
-                   writing-mode: vertical-rl; font: 8pt Arial, sans-serif; padding: 10mm 1mm; } }
+                   writing-mode: vertical-rl; font: 8pt Arial, sans-serif; padding: 10mm 1mm; margin-left: 2mm; } }
   @page :right { @left-middle  { content: "Do not write in this area."; background: #404040; color: #fff;
-                   writing-mode: vertical-rl; font: 8pt Arial, sans-serif; padding: 10mm 1mm; transform: rotate(180deg); } }
+                   writing-mode: vertical-rl; font: 8pt Arial, sans-serif; padding: 10mm 1mm; margin-right: 2mm;
+                   transform: rotate(180deg); } }
   @page :first { @right-middle { content: none; } @left-middle { content: none; } }  /* never on the cover */
 </style>
 </head>
@@ -333,7 +343,19 @@
         <input id="home-filter" type="search" placeholder="Filter by topic, type, subject or year" style="min-width: 260px">
         <span class="grow"></span>
         <button id="plans-btn" onclick="location.href='plans.html' + location.search">Lesson plans</button>
+        <button id="import-btn">Import from a sheet</button>
         <button id="new-btn" class="primary">+ New exam</button>
+      </div>
+      <div id="import-box" hidden>
+        <p><b>Build an exam from a spreadsheet.</b> Download the template, fill it in (or ask an AI assistant to —
+          the instructions it needs are written at the top of the sheet), then upload it here.</p>
+        <p>
+          <a href="/import-template.xlsx" download>Download the template (Excel)</a> ·
+          <a href="/import-template.csv" download>as CSV</a>
+          <input id="import-file" type="file" accept=".xlsx,.csv,text/csv" hidden>
+          <button id="import-pick">Choose a filled-in sheet…</button>
+        </p>
+        <div id="import-msg"></div>
       </div>
       <div id="home-list"></div>
       <p class="note">Your staff code identifies you; it is not a password. Exams are private to your code
@@ -988,22 +1010,41 @@ function sortable(el, arr, group, handle) {
     // page jump under the pointer, and a drop into another section can land back where it started.
     onStart: e => {
       if (group !== "questions" && group !== "sections") return;
-      const before = e.item.getBoundingClientRect().top;
+      const wrap = $("#paper-wrap"), top = e.item.getBoundingClientRect().top;
+      const height = wrap.scrollHeight, pad = parseFloat(getComputedStyle(wrap).paddingBottom) || 0;
       $("#paper").querySelectorAll(".pgap").forEach(g => g.remove());
       $("#paper").classList.add(`folding-${group}`);
-      // Folding what's above would slide the dragged item away from the pointer; pad the top to hold it still.
-      $("#paper-wrap").style.paddingTop = `${20 + before - e.item.getBoundingClientRect().top}px`;
+      // Folding makes the page far shorter than where the teacher has scrolled to, and the browser would clamp
+      // the scroll and leap up. Keep the old height with padding, then scroll so the item stays under the pointer.
+      wrap.style.paddingBottom = `${pad + Math.max(0, height - wrap.scrollHeight)}px`;
+      wrap.scrollTop += e.item.getBoundingClientRect().top - top;
     },
     onEnd: e => {
-      $("#paper").classList.remove("folding-questions", "folding-sections");
-      $("#paper-wrap").style.paddingTop = "";
+      const wrap = $("#paper-wrap"), folded = $("#paper").matches(".folding-questions, .folding-sections");
+      if (folded) {
+        const top = e.item.getBoundingClientRect().top;
+        $("#paper").classList.remove("folding-questions", "folding-sections");
+        wrap.scrollTop += e.item.getBoundingClientRect().top - top;  // unfolding pushes the item down: follow it
+        wrap.style.paddingBottom = "";
+      }
+      const moved = e.from._arr[e.oldDraggableIndex], top = e.item.getBoundingClientRect().top;
       // Draggable indexes count only the draggable items, not the page-gap spacers between them.
-      if (e.from === e.to && e.oldDraggableIndex === e.newDraggableIndex) return;
-      const [moved] = e.from._arr.splice(e.oldDraggableIndex, 1);
+      if (e.from === e.to && e.oldDraggableIndex === e.newDraggableIndex) {
+        if (folded) { paginate(); keepInView(moved, top); }  // the drag took the page gaps out: put them back
+        return;
+      }
+      e.from._arr.splice(e.oldDraggableIndex, 1);
       e.to._arr.splice(e.newDraggableIndex, 0, moved);
-      setTimeout(changed);
+      setTimeout(() => { changed(); keepInView(moved, top); });
     },
   });
+}
+
+// After a drop the paper is rebuilt and re-paginated, which moves things. Scroll so the item the teacher
+// just put down is back where they left it on screen.
+function keepInView(obj, top) {
+  const el = [...$("#paper").querySelectorAll("[data-node]")].find(n => paperRefs[n.dataset.node]?.obj === obj);
+  if (el) $("#paper-wrap").scrollTop += el.getBoundingClientRect().top - top;
 }
 
 function pickImage(done) {
@@ -1077,7 +1118,12 @@ function renderPaper() {
   paperStale = false;
   paperRefs = [];
   const ex = exam, ed = !readOnly;
-  const answered = s => s.to_answer == null || s.to_answer === "" ? s.questions.length : Number(s.to_answer);
+  // Blank means "all of them". Anything that isn't a number (an imported "all", say) means that too,
+  // so the cover table can never print NaN.
+  const answered = s => {
+    const n = s.to_answer == null || s.to_answer === "" ? NaN : Number(s.to_answer);
+    return Number.isFinite(n) ? n : s.questions.length;
+  };
   const nQ = ex.sections.reduce((a, s) => a + s.questions.length, 0);
   const sectionName = s => `Section ${s.name}${s.description ? ": " + s.description : ""}`;
 
@@ -1124,10 +1170,12 @@ function renderPaper() {
   const body = `<section class="sheet body"><div class="seclist"${list(ex.sections, "sections", ".h-sec")}>${sections}</div>
     ${ed ? `<button class="add" data-act="add-section">+ Section</button>` : ""}</section>`;
 
-  const paper = $("#paper");
+  // Rebuilding empties the paper for a moment, which can clamp the scroll just as paginate() can.
+  const paper = $("#paper"), wrap = $("#paper-wrap"), keepTop = wrap.scrollTop;
   paper.innerHTML = cover + body + extra;
   if (graphEditing && !markEditingGraph()) closeGraphPanel();  // its graph was deleted or undone
   paginate();
+  wrap.scrollTop = keepTop;
   if (ed) for (const el of paper.querySelectorAll("[data-arr]")) {
     const r = paperRefs[el.dataset.arr];
     sortable(el, r.arr, r.group, r.handle);
@@ -1167,8 +1215,13 @@ function blockInner(b, grips = true) {
     case "text": inner = editable("div", "txt", b, "value", "rich", "Type here…"); break;
     case "equation": inner = editable("div", "eq", b, "value", "equation", "Click to add an equation"); break;
     case "image":
+      // An imported sheet describes the picture instead of carrying it, so show the description
+      // until the teacher uses Replace. The placeholder is screen-only: it never prints.
       inner = String(b.value || "").startsWith("data:image/")
-        ? `<div class="imgbox" style="width:${clamp(Number(b.width) || 60, 10, 100)}%"><img class="img" src="${esc(b.value)}" alt="">${grip}</div>` : "";
+        ? `<div class="imgbox" style="width:${clamp(Number(b.width) || 60, 10, 100)}%"><img class="img" src="${esc(b.value)}" alt="">${grip}</div>`
+        : b.placeholder && !readOnly
+          ? `<div class="imgbox img-todo" style="width:${clamp(Number(b.width) || 60, 10, 100)}%">${esc(b.placeholder)}${grip}</div>`
+          : "";
       break;
     case "lines": inner = `<div class="lines"><div class="ln">${"<div></div>".repeat(clamp(Number(b.n) || 0, 0, 30))}</div>${grip}</div>`; break;
     case "box": inner = `<div class="box" style="height:${clamp(Number(b.height_cm) || 0, 0, 25)}cm">${grip}</div>`; break;
@@ -1797,6 +1850,44 @@ $("#home-filter").oninput = () => { clearTimeout(filterTimer); filterTimer = set
 $("#tab-mine").onclick = () => { tab = "mine"; renderHome(); };
 $("#tab-shelf").onclick = () => { tab = "shelf"; renderHome(); };
 $("#new-btn").onclick = newExam;
+
+// Import: the server turns a sheet into exam JSON, then it is saved like any other new exam.
+// Everything in the sheet is content, so it goes through the same editor the teacher already knows.
+$("#import-btn").onclick = () => {
+  const box = $("#import-box");
+  box.hidden = !box.hidden;
+  if (!box.hidden) $("#import-msg").replaceChildren();
+};
+$("#import-pick").onclick = () => $("#import-file").click();
+$("#import-file").onchange = async () => {
+  const file = $("#import-file").files[0];
+  const msg = $("#import-msg");
+  if (!file) return;
+  if (!code) { msg.replaceChildren(h("p", { class: "bad" }, "Enter your staff code first.")); return; }
+  msg.replaceChildren(h("p", { class: "note" }, `Reading ${file.name}…`));
+  try {
+    const r = await fetch(`/api/import?owner=${code}`, {
+      method: "POST", headers: { "X-Filename": file.name }, body: file,
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      msg.replaceChildren(h("p", { class: "bad" }, body.error || `Could not read that file (HTTP ${r.status}).`),
+        ...(body.problems || []).map(p => h("p", { class: "note" }, p)));
+      return;
+    }
+    uid = newUid();
+    exam = { ...defaults(), ...body.exam };
+    examOwner = code;
+    readOnly = false;
+    openEditor();
+    scheduleSave(false);
+    if (body.warnings?.length) setStatus(body.warnings.join(" "), true);
+  } catch (e) {
+    msg.replaceChildren(h("p", { class: "bad" }, `Could not read that file: ${e.message}`));
+  } finally {
+    $("#import-file").value = "";
+  }
+};
 $("#dup-btn").onclick = () => duplicate(uid);
 $("#undo-btn").onclick = undo;
 document.addEventListener("keydown", e => {
@@ -1865,7 +1956,9 @@ const PAGE_MM = 297 - 15 - 16;  // @page margins
 let paginateTimer = null;
 function schedulePaginate() { clearTimeout(paginateTimer); paginateTimer = setTimeout(paginate, 250); }
 function paginate() {
-  const paperEl = $("#paper");
+  // Taking the gaps out shortens the page for a moment. Scrolled near the end, the browser clamps the
+  // scroll position and it stays clamped once the gaps are back, so note it first and restore it below.
+  const paperEl = $("#paper"), wrap = $("#paper-wrap"), keepTop = wrap.scrollTop;
   paperEl.querySelectorAll(".pgap, .dnwa").forEach(g => g.remove());
   const body = paperEl.querySelector(".sheet.body");
   if (!body || !body.getClientRects().length) return;  // editor not showing
@@ -1901,6 +1994,7 @@ function paginate() {
   const filler = h("div", { class: "pgap" });  // fill out the last page so it looks like a whole sheet
   filler.style.height = px(Math.max(0, pageStart + pageH - endY));
   body.append(filler);
+  wrap.scrollTop = keepTop;
 
   // One "do not write in this area" strip per page. The cover is page 1, so the body starts at page 2:
   // even pages carry it on the right, odd pages on the left, which puts it by the spine either way.

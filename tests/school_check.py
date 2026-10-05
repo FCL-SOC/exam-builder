@@ -68,7 +68,8 @@ def q(text, marks=1):
 
 def main() -> int:
     tmp = Path(tempfile.mkdtemp())
-    shutil.copy(ROOT / "server.py", tmp)
+    for name in ("server.py", "importer.py"):
+        shutil.copy(ROOT / name, tmp)
     shutil.copytree(ROOT / "static", tmp / "static")
     shutil.copytree(ROOT / "connector" / "desktop-extension", tmp / "connector" / "desktop-extension")
     app_port, connector_port = free_port(), free_port()
