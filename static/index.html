@@ -19,6 +19,8 @@
   html, body { margin: 0; height: 100%; }
   body { font: 14px 'Segoe UI', Arial, sans-serif; background: #EFEFEF; color: #222; }
   [hidden] { display: none !important; }
+  #paper .remote-change { animation: remote-change 3s ease-out; }  /* just changed by Claude or another tab */
+  @keyframes remote-change { from { background: #FFF3C4; box-shadow: 0 0 0 6px #FFF3C4; } to { background: transparent; box-shadow: 0 0 0 6px transparent; } }
   button { font: inherit; border: 1px solid var(--border); background: #fff; border-radius: var(--radius); padding: 4px 10px; cursor: pointer; }
   button:hover { border-color: var(--red); }
   button.primary { background: var(--red); color: #fff; border-color: var(--red); }
@@ -448,6 +450,9 @@ const PHONES = "Students are NOT permitted to bring mobile phones and/or any oth
 // ---------------------------------------------------------------- state
 let code = "", uid = null, exam = null, examOwner = "", readOnly = false, tab = "mine";
 let saveTimer = null, saving = false, dirty = false;
+// The saved version this editor is working from (server updated_at) and that version's content, for merging
+// when the exam is saved somewhere else at the same time (another tab, or Claude).
+let version = null, baseJson = null;
 
 // ---------------------------------------------------------------- helpers
 const $ = s => document.querySelector(s);
@@ -472,7 +477,7 @@ function h(tag, props = {}, ...kids) {
 async function api(path, opts) {
   const r = await fetch(path, opts);
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  if (!r.ok) throw Object.assign(new Error(j.error || `HTTP ${r.status}`), { status: r.status });
   return j;
 }
 
@@ -531,6 +536,81 @@ const defaults = () => ({
 const examTitle = ex => [ex.unit, ex.subject, "·", ex.task, `S${ex.semester} ${ex.year}`]
   .filter(Boolean).join(" ").replace(/^· /, "") || "Untitled exam";
 
+// ---------------------------------------------------------------- merging (pure; tests/test_merge.py runs these)
+// A three-way merge for when this exam was saved somewhere else (another tab, or Claude) while it was open here.
+// base: the version this editor last loaded or saved; mine: this editor's exam; theirs: the newer saved one.
+// Sections, questions and parts are matched by id and their fields compared one by one, so different questions
+// edited on each side both survive. If both sides changed the same field, or one deleted what the other changed,
+// the teacher's own version (mine) wins and it is counted in `conflicts`.
+// It works IN PLACE on mine, so the question the teacher is typing into stays the same object.
+const MERGE_LISTS = ["sections", "questions", "parts"];
+const MERGE_SKIP = new Set(["id", "title", "total_marks", ...MERGE_LISTS]);  // title and total are recomputed on save
+const canon = v => JSON.stringify(v, (k, x) => x && typeof x === "object" && !Array.isArray(x)
+  ? Object.fromEntries(Object.keys(x).sort().map(key => [key, x[key]])) : x);
+const same = (a, b) => canon(a) === canon(b);
+
+function mergeExam(base, mine, theirs) {
+  const report = { conflicts: 0, changed: new Set(), whole: false };
+  const ids = ex => ex.sections.flatMap(s => [s.id, ...s.questions.flatMap(function walk(it) { return [it.id, ...(it.parts || []).flatMap(walk)]; })]);
+  const baseIds = ids(base), theirIds = ids(theirs);
+  // Without shared ids there is nothing to match on (an exam from before ids, edited on both sides at once):
+  // take theirs whole. The caller keeps the teacher's version in Undo.
+  if (baseIds.some(id => !id) || theirIds.some(id => !id) || !theirIds.some(id => baseIds.includes(id))) {
+    for (const k of Object.keys(mine)) delete mine[k];
+    Object.assign(mine, structuredClone(theirs));
+    report.whole = true;
+    return report;
+  }
+  mergeNode(base, mine, theirs, report);
+  return report;
+}
+
+function mergeNode(b, m, t, report) {
+  const list = MERGE_LISTS.find(k => Array.isArray(m[k]) || Array.isArray(t[k]));
+  for (const k of new Set([...Object.keys(b || {}), ...Object.keys(m), ...Object.keys(t)])) {
+    if (MERGE_SKIP.has(k)) continue;
+    const bv = b?.[k], mv = m[k], tv = t[k];
+    if (same(mv, tv) || same(tv, bv)) continue;  // nothing new from theirs
+    if (same(mv, bv)) {                           // only theirs changed it
+      if (tv === undefined) delete m[k]; else m[k] = structuredClone(tv);
+      report.changed.add(m.id ?? "cover");
+    } else report.conflicts++;                    // both changed it: keep mine
+  }
+  if (list) mergeList(b?.[list] || [], m[list] || (m[list] = []), t[list] || [], report);
+}
+
+function mergeList(B, M, T, report) {
+  const byId = arr => new Map(arr.map(x => [x.id, x]));
+  const b = byId(B), m = byId(M), t = byId(T), keep = new Map();
+  for (const [id, mo] of m) {
+    if (t.has(id)) { mergeNode(b.get(id), mo, t.get(id), report); keep.set(id, mo); }
+    else if (!b.has(id)) keep.set(id, mo);                            // added here
+    else if (same(mo, b.get(id))) report.changed.add(id);             // deleted there, untouched here
+    else { keep.set(id, mo); report.conflicts++; }                    // deleted there, changed here: keep it
+  }
+  for (const [id, to] of t) {
+    if (m.has(id)) continue;
+    if (!b.has(id)) { keep.set(id, structuredClone(to)); report.changed.add(id); }  // added there
+    else if (!same(to, b.get(id))) report.conflicts++;                // deleted here, changed there: stays deleted
+  }
+  // Order: if only theirs rearranged, use theirs; otherwise ours. Then slot in what only the other side added,
+  // after whatever came before it there.
+  const orderOf = arr => arr.map(x => x.id).filter(id => keep.has(id));
+  const moved = (arr, ref) => {
+    const common = orderOf(arr).filter(id => ref.has(id));
+    return canon(common) !== canon(orderOf([...ref.values()]).filter(id => common.includes(id)));
+  };
+  const theirsFirst = moved(T, b) && !moved(M, b);
+  const order = orderOf(theirsFirst ? T : M), other = orderOf(theirsFirst ? M : T);
+  other.forEach((id, i) => {
+    if (order.includes(id)) return;
+    const before = other.slice(0, i).reverse().find(p => order.includes(p));
+    order.splice(before === undefined ? 0 : order.indexOf(before) + 1, 0, id);
+  });
+  M.splice(0, M.length, ...order.map(id => keep.get(id)));
+}
+// ---------------------------------------------------------------- end of merging
+
 // ---------------------------------------------------------------- saving (never lose a teacher's work)
 function scheduleSave(track = true) {
   if (readOnly) return;
@@ -547,18 +627,29 @@ async function save() {
   saving = true; dirty = false;
   exam.title = examTitle(exam);
   exam.total_marks = exam.sections.reduce((a, s) => a + sectionTotal(s), 0);  // shown on the exam list
+  const body = JSON.stringify(exam), savingUid = uid;
+  let clash = false;
   try {
-    await api(`/api/exams/${uid}?owner=${code}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(exam),
+    const r = await api(`/api/exams/${uid}?owner=${code}${version ? `&base=${encodeURIComponent(version)}` : ""}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body,
     });
+    if (savingUid === uid) { version = r.updated_at; baseJson = body; }
     if (!dirty) setStatus("Saved");
   } catch (e) {
     dirty = true;
-    setStatus(`Not saved — retrying (${e.message})`, true);
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(save, 5000);
+    if (e.status === 409) clash = true;  // saved somewhere else meanwhile: merge, then save again
+    else {
+      setStatus(`Not saved — retrying (${e.message})`, true);
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(save, 5000);
+    }
   } finally {
     saving = false;
+  }
+  if (clash) {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 3000);  // in case the merge can't run right now
+    await pullRemote();
   }
 }
 window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
@@ -593,6 +684,64 @@ function undo() {
 }
 function updateUndoButton() { $("#undo-btn").disabled = !undoStack.length; }
 
+// ---------------------------------------------------------------- live updates (another tab, or Claude)
+// While an exam is open, a cheap version check runs every 2 s. When it was saved somewhere else, the new version
+// is merged in (see mergeExam), changed questions flash, and Undo puts back what was here before.
+let pulling = false;
+async function pullRemote() {
+  if (pulling || !uid || !exam) return;
+  pulling = true;
+  const openUid = uid;
+  try {
+    const r = await api(`/api/exams/${uid}?owner=${code}`);
+    if (uid !== openUid || r.updated_at === version) return;
+    const theirs = { ...defaults(), ...r.exam };
+    trackUndo();
+    const report = mergeExam(baseJson ? JSON.parse(baseJson) : theirs, exam, theirs);
+    version = r.updated_at;
+    baseJson = JSON.stringify(r.exam);
+    const changed = report.whole ? new Set(["all"]) : report.changed;
+    if (changed.size) {
+      // A field whose content just changed underneath the caret would type into a stale copy: let go of it.
+      const field = document.activeElement?.closest?.("#paper [data-ref]");
+      if (field && (report.whole || touchedBy(field, changed))) field.blur();
+      renderAll();
+      flashChanged(changed);
+    }
+    const ignore = { title: 0, total_marks: 0 };
+    if (same({ ...exam, ...ignore }, { ...theirs, ...ignore })) { dirty = false; clearTimeout(saveTimer); }
+    else scheduleSave(false);  // this tab's own edits still need saving on top
+    const who = r.updated_by === "claude" ? "Claude" : "another tab";
+    setStatus(report.whole ? `Replaced by ${who}'s version · Undo brings yours back`
+      : report.conflicts ? `Updated by ${who} · you both changed the same thing, so your version was kept`
+      : `Updated by ${who}`);
+  } catch { /* offline for a moment: the next check or save tries again */ }
+  finally { pulling = false; }
+}
+
+function touchedBy(field, changed) {
+  const node = field.closest('[data-kind="item"]') || field.closest('[data-kind="sec"]');
+  return node ? changed.has(paperRefs[node.dataset.node]?.obj?.id) : changed.has("cover");
+}
+
+function flashChanged(changed) {
+  for (const el of document.querySelectorAll('#paper [data-kind="item"], #paper [data-kind="sec"]')) {
+    if (!changed.has(paperRefs[el.dataset.node]?.obj?.id)) continue;
+    el.classList.remove("remote-change");
+    void el.offsetWidth;  // restart the animation
+    el.classList.add("remote-change");
+  }
+}
+
+async function checkForUpdates() {
+  if (!uid || !exam || $("#editor-view").hidden || document.hidden || saving || dirty || pulling) return;
+  try {
+    const v = await api(`/api/exams/${uid}/version?owner=${code}`);
+    // Unsaved edits here go up with the next save instead, which merges if it clashes.
+    if (v.updated_at !== version && !saving && !dirty) await pullRemote();
+  } catch { /* try again next time */ }
+}
+
 // ---------------------------------------------------------------- home
 function show(view) {
   $("#home").hidden = view !== "home";
@@ -601,7 +750,13 @@ function show(view) {
   if (view !== "editor") { $("#palette").hidden = true; document.body.classList.remove("palette"); }
 }
 
-let homeRequest = 0;  // a slow list response must not overwrite a newer one (e.g. after the code changed)
+let homeRequest = 0, homeSeen = "";
+const listSignature = rows => rows.map(r => `${r.uid} ${r.updated_at}`).join("|");
+// An exam Claude creates or changes shows up in "My exams" without reloading.
+async function checkHomeList() {
+  if ($("#home").hidden || document.hidden || !code || tab !== "mine") return;
+  try { if (listSignature(await api(`/api/exams?owner=${code}`)) !== homeSeen) renderHome(); } catch { /* next time */ }
+}  // a slow list response must not overwrite a newer one (e.g. after the code changed)
 async function renderHome() {
   const request = ++homeRequest;
   show("home");
@@ -629,7 +784,7 @@ async function renderHome() {
     return;
   }
   if (request !== homeRequest) return;
-  if (tab === "mine") fillSubjects(rows.map(r => r.subject));
+  if (tab === "mine") { fillSubjects(rows.map(r => r.subject)); homeSeen = listSignature(rows); }
   if (!rows.length) box.append(h("p", { class: "note" }, tab === "mine" ? "No exams yet. Click + New exam." : "Nothing has been shared here yet."));
   const filter = $("#home-filter").value.trim().toLowerCase();
   if (filter) rows = rows.filter(r => [r.title, r.topic, r.assessment_type, r.subject, r.learning_area, r.year_level && `year ${r.year_level}`, r.task]
@@ -671,6 +826,7 @@ function fillSubjects(extra) {
 
 async function newExam() {
   uid = newUid(); exam = defaults(); examOwner = code; readOnly = false;
+  version = null; baseJson = JSON.stringify(exam);
   openEditor();
   scheduleSave(false);
 }
@@ -680,6 +836,7 @@ async function openExam(id) {
     const r = await api(`/api/exams/${id}?owner=${code}`);
     uid = id; exam = { ...defaults(), ...r.exam }; examOwner = r.owner; readOnly = r.owner !== code;
     dirty = false;
+    version = r.updated_at; baseJson = JSON.stringify(r.exam);
     const added = ensureIds(exam);  // exams from before ids existed
     openEditor();
     setStatus(readOnly ? `Viewing ${r.owner}'s shared exam (read-only)` : "Saved");
@@ -749,6 +906,7 @@ function tidyImported(ex) {
 function importExam(imported) {
   uid = newUid(); exam = tidyImported(imported); examOwner = code; readOnly = false;
   ensureIds(exam);
+  version = null; baseJson = JSON.stringify(exam);
   openEditor();  // swaps #data=… for #exam=uid, so a reload opens the saved copy rather than importing again
   scheduleSave(false);
 }
@@ -1946,6 +2104,10 @@ paper.addEventListener("drop", async e => {
   try { paperRefs[item.dataset.node].obj.blocks.push({ type: "image", value: await loadImage(file), width: 60 }); changed(); }
   catch (err) { alert(err.message); }
 });
+
+setInterval(checkForUpdates, 2000);
+setInterval(checkHomeList, 5000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { checkForUpdates(); checkHomeList(); } });
 
 try { code = normalise(localStorage.getItem("staffCode")); } catch {}
 $("#code").value = code;
