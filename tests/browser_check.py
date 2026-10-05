@@ -46,7 +46,8 @@ def main() -> int:
     data_dir = Path(tempfile.mkdtemp())
     if use_server:
         # A throwaway copy, because the server keeps its database next to server.py.
-        shutil.copy(ROOT / "server.py", data_dir)
+        for name in ("server.py", "importer.py"):
+            shutil.copy(ROOT / name, data_dir)
         shutil.copytree(ROOT / "static", data_dir / "static")
         proc = subprocess.Popen([sys.executable, str(data_dir / "server.py"), str(port)], cwd=data_dir,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

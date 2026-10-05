@@ -48,7 +48,8 @@ class DesktopExtensionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = Path(tempfile.mkdtemp())
-        shutil.copy(ROOT / "server.py", cls.tmp)
+        for name in ("server.py", "importer.py"):
+            shutil.copy(ROOT / name, cls.tmp)
         shutil.copytree(ROOT / "static", cls.tmp / "static")
         app_port, connector_port = free_port(), free_port()
         cls.app = f"http://127.0.0.1:{app_port}"
