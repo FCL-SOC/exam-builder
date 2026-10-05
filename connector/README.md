@@ -73,6 +73,11 @@ first, and can deploy it to everyone ([Claude Help Centre](https://support.claud
 | `edit_exam` | Changes applied all or nothing: `add`, `replace`, `remove`, `move` questions and parts; `add_section`, `update_section`; `update_details` (cover) |
 | `restore_version` | Puts the exam back as it was before Claude's last change(s) |
 
+Claude writes questions by the school's **question style guide**: command terms (as in the VCAA glossary), the
+marks each usually earns, answer space per mark, multiple-choice conventions and wording. It ships as
+[`docs/question-style-guide.md`](../docs/question-style-guide.md); admins can rewrite it in **School settings →
+Questions written by Claude**, and Claude reads the current version each time it writes.
+
 Content is checked with the editor's own rules (including its graph-expression parser) before anything is saved.
 Only problems in what Claude changed stop a change; a teacher's own half-finished questions don't. Images stay in
 the exam but are never sent to Claude: they appear as refs Claude can keep or move, and only teachers add new ones.

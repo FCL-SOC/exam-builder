@@ -137,6 +137,20 @@ class SchoolModeTests(unittest.TestCase):
         self.assertFalse(r["ok"])
         self.assertIn("needs marks", r["errors"][0])
 
+    def test_claude_gets_the_schools_question_style_guide(self):
+        self.assertIn("- Explain (2–4 marks)", self.call("get_exam_format")["result"])  # the built-in guide
+        http("POST", "settings/pin", {"pin": "1234"})
+        req = urllib.request.Request(f"{EXAM_SERVER}/api/settings", method="PUT",
+                                     data=json.dumps({"style_guide": "Always use five options in multiple choice."}).encode(),
+                                     headers={"Content-Type": "application/json", "X-Admin-PIN": "1234"})
+        urllib.request.urlopen(req).close()
+        text = self.call("get_exam_format")["result"]
+        self.assertIn("Always use five options in multiple choice.", text)
+        self.assertNotIn("- Explain (2–4 marks)", text)
+        req = urllib.request.Request(f"{EXAM_SERVER}/api/settings", method="PUT", data=json.dumps({"style_guide": ""}).encode(),
+                                     headers={"Content-Type": "application/json", "X-Admin-PIN": "1234"})
+        urllib.request.urlopen(req).close()
+
     def test_get_exam_outline(self):
         uid = self.create()
         r = self.call("get_exam", exam_id=uid)

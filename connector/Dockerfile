@@ -8,7 +8,7 @@ COPY connector/requirements.txt connector/
 RUN pip install --no-cache-dir -r connector/requirements.txt
 
 COPY schema/ schema/
-COPY docs/exam-format.md docs/
+COPY docs/exam-format.md docs/question-style-guide.md docs/
 COPY examples/ examples/
 COPY connector/*.py connector/
 

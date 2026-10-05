@@ -146,6 +146,33 @@ def free_port():
         return s.getsockname()[1]
 
 
+class StyleGuideTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.settings = server.SchoolSettings(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_built_in_guide_until_the_school_writes_its_own(self):
+        self.assertIn("Command terms", server.DEFAULT_STYLE_GUIDE)
+        self.assertEqual(self.settings.public()["style_guide"], server.DEFAULT_STYLE_GUIDE)
+        self.assertEqual(self.settings.update({"style_guide": "Our way."})["style_guide"], "Our way.")
+        stored = json.loads((Path(self.tmp.name) / "settings.json").read_text())
+        self.assertEqual(stored["style_guide"], "Our way.")
+
+    def test_empty_or_unchanged_guide_isnt_stored(self):
+        """So the school keeps getting improvements to the built-in guide."""
+        self.settings.update({"style_guide": "Our way."})
+        for value in ("", "   ", server.DEFAULT_STYLE_GUIDE):
+            self.settings.update({"style_guide": value, "school_name": "Hillview"})
+            stored = json.loads((Path(self.tmp.name) / "settings.json").read_text())
+            self.assertNotIn("style_guide", stored)
+            self.assertEqual(self.settings.public()["style_guide"], server.DEFAULT_STYLE_GUIDE)
+        with self.assertRaises(ValueError):
+            self.settings.update({"style_guide": "x" * 30001})
+
+
 class ClaudeExtensionTests(unittest.TestCase):
     def test_available_only_while_the_connector_runs(self):
         self.assertFalse(server.ClaudeExtension(port=free_port()).available())

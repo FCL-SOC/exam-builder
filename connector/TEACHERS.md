@@ -33,6 +33,8 @@ your screen within a couple of seconds, and the questions it changed flash yello
   kept, and the bar at the top tells you.
 - **Changed your mind?** Press **Undo** in Exam Assistant, or tell Claude *"undo that"*.
 - **Pictures:** Claude can't add images. It will tell you where one should go; drag your image onto the question.
+- **How Claude writes questions** (command terms, marks, answer space) comes from the school's question style
+  guide. Whoever looks after Exam Assistant can change it in **School settings**.
 - **Always read it through before printing:** check the questions, the marks and the answers. Correct
   multiple-choice answers are shown in green in the editor and are never printed.
 

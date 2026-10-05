@@ -46,8 +46,8 @@ won't print until every deepest item has marks above 0. Half marks are allowed.
 |---|---|---|
 | `text` | `value` | Question text. Newlines are kept. `$...$` is inline LaTeX |
 | `equation` | `value` | A displayed equation in LaTeX, **without** `$` (e.g. `\frac{a}{b}`, `\begin{aligned}…\end{aligned}`) |
-| `lines` | `n` (1–30) | Ruled answer lines. Roughly 2–3 lines per mark for written answers |
-| `box` | `height_cm` (1–25) | Blank working space. Roughly 1.5–2 cm per mark for calculations |
+| `lines` | `n` (1–30) | Ruled answer lines. How many per mark: see the question style guide |
+| `box` | `height_cm` (1–25) | Blank working space. How much per mark: see the question style guide |
 | `answer` | `boxes`: 1–4 of `{label, units}` | A boxed final answer: `{"label": "Total cost =", "units": "dollars"}` |
 | `table` | `rows` (strings), `header`, `shade_rows`, `shade_cols` | Data, or a table students complete (leave those cells `""`) |
 | `choices` | `options` (2–8), `correct` | Multiple choice. Options are lettered A, B, C… automatically |

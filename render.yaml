@@ -15,6 +15,7 @@ services:
         - schema/**
         - examples/**
         - docs/exam-format.md
+        - docs/question-style-guide.md
     envVars:
       - key: PUBLIC_URL      # this service's https://… address, e.g. https://exam-assistant-connector.onrender.com
         sync: false

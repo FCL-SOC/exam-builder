@@ -60,6 +60,9 @@ open editor. Run `setup-connector.bat` once on the server; teachers then install
 [teacher guide](connector/TEACHERS.md) and the [connector setup](connector/README.md). The connector is optional:
 without it, Exam Assistant still needs no packages and no internet connection.
 
+Claude follows the school's question style guide (command terms, marks, answer space, multiple choice), which
+admins can change in School settings.
+
 Any exam open in the editor also updates live when it's changed somewhere else (Claude, or another tab) and merges
 with your own edits instead of overwriting them.
 

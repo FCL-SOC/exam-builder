@@ -412,6 +412,10 @@
       <label>Cover instructions <textarea id="st-instructions" rows="8"></textarea></label>
       <p class="note">A line starting with ## is a heading; {calculator} inserts each exam's calculator rule. New exams use this; existing exams keep their own copy.</p>
       <label>Notice box <textarea id="st-notice" rows="2"></textarea></label>
+      <h3>Questions written by Claude</h3>
+      <label>Question style guide <textarea id="st-style_guide" rows="10" spellcheck="true"></textarea></label>
+      <p class="note">How Claude writes questions for this school: command terms, wording, marks and answer space. Change
+        anything to suit your school. <button type="button" id="st-style-reset">Use the built-in guide</button></p>
       <h3>Printed page</h3>
       <label>Font <select id="st-body_font"></select></label>
       <label>Text size (pt) <input id="st-body_size" type="number" min="8" max="16" step="0.5"></label>
@@ -1630,11 +1634,11 @@ const FONTS = [["Calibri, Carlito, Arial, sans-serif", "Calibri"], ["Arial, Helv
   ["'Segoe UI', Arial, sans-serif", "Segoe UI"], ["'Times New Roman', Times, serif", "Times New Roman"],
   ["Georgia, serif", "Georgia"], ["Verdana, sans-serif", "Verdana"]];
 const SETTING_KEYS = ["school_name", "default_task", "instructions", "notice", "body_font", "body_size",
-  "school_name_size", "title_size", "line_spacing", "theme_colour", "accent_colour"];
+  "school_name_size", "title_size", "line_spacing", "theme_colour", "accent_colour", "style_guide"];
 const JSON_HEADERS = { "Content-Type": "application/json" };
 let settings = { school_name: "Your School", default_task: "Written Examination", instructions: DEFAULT_INSTRUCTIONS, notice: PHONES,
   body_font: FONTS[0][0], body_size: 11, school_name_size: 33, title_size: 25, line_spacing: 9,
-  theme_colour: "#8B0000", accent_colour: "#B8860B", pin_set: false, has_logo: false };
+  theme_colour: "#8B0000", accent_colour: "#B8860B", style_guide: "", pin_set: false, has_logo: false };
 let adminPin = window.EXAM_DEMO ? "demo" : "", logoVersion = Date.now();  // the demo has no PIN
 const logoUrl = () => window.demoLogoUrl || `/school-logo?v=${logoVersion}`;
 
@@ -1696,7 +1700,7 @@ async function unlockSchool() {
   }
 }
 function fillSchoolForm() {
-  for (const key of SETTING_KEYS) $(`#st-${key}`).value = settings[key];
+  for (const key of SETTING_KEYS) $(`#st-${key}`).value = settings[key] ?? "";
   fillLogoPreview();
 }
 // Logo changes save straight away; they must not reset the rest of the form, which may hold unsaved edits.
@@ -1771,6 +1775,8 @@ $("#school-unlock").onclick = unlockSchool;
 $("#school-pin").onkeydown = $("#school-pin2").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); unlockSchool(); } };
 $("#school-cancel").onclick = $("#school-close").onclick = () => schoolDialog.close();
 $("#school-save").onclick = saveSchool;
+// Empty means "the built-in guide": the server fills it back in, so improvements to it keep reaching the school.
+$("#st-style-reset").onclick = () => { $("#st-style_guide").value = ""; $("#st-style_guide").placeholder = "The built-in guide will be used. Click Save."; };
 $("#st-logo").onchange = e => { if (e.target.files[0]) uploadLogo(e.target.files[0]); };
 $("#st-logo-remove").onclick = removeLogo;
 $("#st-change-pin").onclick = changePin;

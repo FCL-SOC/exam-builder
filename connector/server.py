@@ -77,9 +77,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("exam-connector")
 
 GUIDE = (ROOT / "docs" / "exam-format.md").read_text(encoding="utf-8")
+DEFAULT_STYLE_GUIDE = (ROOT / "docs" / "question-style-guide.md").read_text(encoding="utf-8")
 EXAMPLE = json.loads((ROOT / "examples" / "sample_exam.json").read_text(encoding="utf-8"))
-FORMAT_TEXT = (f"{GUIDE}\n\n## Complete example\n\n```json\n{json.dumps(EXAMPLE, indent=1)}\n```\n\n"
-               f"## JSON Schema\n\n```json\n{json.dumps(exam_format.SCHEMA, separators=(',', ':'))}\n```\n")
+
+
+def format_text(style_guide: str) -> str:
+    """What get_exam_format returns: how exams are stored, how this school writes questions, an example, the schema."""
+    return (f"{GUIDE}\n\n# Question style guide\n\nFollow this when writing or changing questions.\n\n"
+            f"{style_guide.strip() or DEFAULT_STYLE_GUIDE}\n\n"
+            f"# Complete example\n\n```json\n{json.dumps(EXAMPLE, indent=1)}\n```\n\n"
+            f"# JSON Schema\n\n```json\n{json.dumps(exam_format.SCHEMA, separators=(',', ':'))}\n```\n")
 
 TALKING_TO_TEACHERS = """\
 The teacher is not technical. Talk about the exam the way it looks on the page ("Section B, question 2, part b"), never
@@ -87,6 +94,8 @@ about ids, JSON, tools, formats, validation or errors you fixed along the way. I
 plainly and say what they can do instead. Keep replies short: what you did, the link, and anything they should check."""
 
 WRITING_RULES = """\
+Follow the question style guide in get_exam_format: command terms, marks that match the number of points a full
+answer needs, answer space to suit the marks, and four-option multiple choice with plausible distractors.
 Marks go on the deepest parts only. Never type question numbers, part letters or marks into text; they are
 automatic. Money is written \\$12.50 (a bare $ starts maths). Graph expressions are in x and use ^."""
 
@@ -136,9 +145,14 @@ WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent
 
 @mcp.tool(title="Get the exam format", annotations=READ)
 def get_exam_format() -> str:
-    """The exam JSON format: the authoring guide, a complete example exam and the JSON Schema.
-    Call this once before writing an exam."""
-    return FORMAT_TEXT
+    """How to write an exam: the format, the school's question style guide (command terms, marks, wording, answer
+    space), a complete example and the JSON Schema. Call this once before writing or changing questions."""
+    if MODE == "school":
+        try:
+            return format_text(school.server.settings().get("style_guide", ""))
+        except school_mode.SchoolError:
+            pass  # the guide that ships with the app will do
+    return format_text(DEFAULT_STYLE_GUIDE)
 
 
 def _date(ts: float) -> str:

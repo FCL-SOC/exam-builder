@@ -228,7 +228,8 @@ class ServerTests(unittest.TestCase):
 
     def test_format_has_guide_example_and_schema(self):
         text = self.call("get_exam_format").content[0].text
-        for needle in ("# Exam format", "## Complete example", "Functions and Statistics", "## JSON Schema", "One backslash, not two"):
+        for needle in ("# Exam format", "# Complete example", "Functions and Statistics", "# JSON Schema", "One backslash, not two",
+                       "# Question style guide", "- Evaluate (4–6 marks)"):
             self.assertIn(needle, text)
 
     def test_link_flow(self):
