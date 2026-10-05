@@ -75,7 +75,7 @@
 
   /* ---------- the exam paper (screen preview AND print) ---------- */
   .sheet { position: relative; width: 210mm; margin: 0 auto 20px; background: #fff; box-shadow: var(--shadow); padding: 15mm; color: #000;
-           font: var(--body-size) var(--body-font); line-height: 1.35; }
+           font: var(--body-size) var(--body-font); line-height: 1.5; }
   .cover { min-height: 297mm; padding: 12.5mm 25.4mm 5mm; }
   /* "Do not write in this area" — the screen preview only; print draws it from the @page margin boxes below,
      because Chrome never paints an absolutely positioned box that is anchored in a flow split across pages.
@@ -298,6 +298,7 @@
     .sheet { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; }
     .cover, .body { break-after: page; }
     .sec { break-before: page; }
+    .ws-head + .seclist > .sec:first-child { break-before: auto; }  /* a worksheet's first section sits under its header */
     .item { break-inside: avoid; }
     .ed:empty:not(td), .sec-note:empty, .ctl, .add, .grip, .tip { display: none !important; }
     .sec-head:has(.desc:empty) .sep, .unitwrap:has(.unit:empty) { display: none; }
@@ -306,7 +307,13 @@
     .img-todo { display: none !important; }  /* a picture that was never added leaves a gap, not a note */
     .pgap { display: none; }
     #graph-panel, #palette { display: none !important; }
-    .pgap.brk { display: block; height: 0 !important; break-before: page; }
+    /* paginate() marks where each page starts. The break is on the question or part itself, not on a marker
+       before it: a marker would let Chrome break again after it and leave a blank page. Margins above it are
+       dropped because the preview measures from its top edge, and print keeps a margin after a forced break. */
+    .pbreak { break-before: page; }
+    .pbreak, .item.newpage { margin-top: 0 !important; }
+    /* The gap under a section's last question (or under the last thing in it) would spill onto a blank page. */
+    .qlist > .item:last-child, .qlist > .item:last-child :last-child { margin-bottom: 0; }
     .pgap .band { display: none; }  /* the grey gap between pages is screen-only */
     .dnwa { display: none !important; }  /* print uses the @page margin boxes instead */
   }
@@ -1983,30 +1990,44 @@ function paginate() {
   // scroll position and it stays clamped once the gaps are back, so note it first and restore it below.
   const paperEl = $("#paper"), wrap = $("#paper-wrap"), keepTop = wrap.scrollTop;
   paperEl.querySelectorAll(".pgap, .dnwa").forEach(g => g.remove());
+  paperEl.querySelectorAll(".pbreak").forEach(el => el.classList.remove("pbreak"));
   const body = paperEl.querySelector(".sheet.body");
   if (!body || !body.getClientRects().length) return;  // editor not showing
   const zoom = parseFloat(paperEl.style.zoom) || 1;
   const box = body.getBoundingClientRect();
   const mm = box.width / 210, pageH = PAGE_MM * mm, GAP = 22;
   const top0 = box.top + 15 * mm;
-  const cands = [...body.querySelectorAll(".sec, .qlist > .item, .qlist > .item > .plist > .item")];
+  // Sub-parts ride with their part, unless the part is taller than a page: then it breaks between them, as print does.
+  const cands = [...body.querySelectorAll(".sec, .qlist > .item, .qlist > .item > .plist > .item, .plist .plist > .item")]
+    .filter(el => !el.matches(".plist .plist > .item") || el.parentElement.closest(".item").getBoundingClientRect().height > pageH);
   const ys = cands.map(el => el.getBoundingClientRect().top - top0);
   const endY = box.bottom - 15 * mm - top0;
+  // Where the content before an element ends. Not the element's own top: the margin between them vanishes at
+  // a page break in print, so a part that fits only without the gap below it still fits.
+  const endBefore = el => {
+    let p = el;
+    while (p !== body && !p.previousElementSibling) p = p.parentElement;
+    let prev = p.previousElementSibling;
+    while (prev && !prev.getClientRects().length) prev = prev.previousElementSibling;
+    return prev ? prev.getBoundingClientRect().bottom - top0 : el.getBoundingClientRect().top - top0;
+  };
+  const ends = cands.map((el, i) => i + 1 < cands.length ? endBefore(cands[i + 1]) : endY);
   const breaks = [];
   let pageStart = 0;
   cands.forEach((el, i) => {
-    const y = ys[i], next = i + 1 < ys.length ? ys[i + 1] : endY;
-    while (y - pageStart > pageH) pageStart += pageH;  // an oversized question overflowed by itself
-    if (y - pageStart < 1) return;
+    const y = ys[i];
     const forced = (el.classList.contains("sec") && i > 0) || el.classList.contains("newpage");
-    if (forced || next - pageStart > pageH) {
+    // ponytail: past the page end already means the question before was taller than a page; this one starts a
+    // new page, but the preview doesn't draw that question's overflow as a page of its own.
+    if (y - pageStart >= 1 && (forced || y - pageStart > pageH || ends[i] - pageStart > pageH)) {
       breaks.push({ el, y, pageStart, forced });
       pageStart = y;
     }
   });
   const px = v => `${v / zoom}px`;
   breaks.forEach((b, n) => {
-    const gap = h("div", { class: b.forced ? "pgap" : "pgap brk" });
+    const gap = h("div", { class: "pgap" });
+    if (!b.forced) b.el.classList.add("pbreak");
     gap.style.height = px(Math.max(0, b.pageStart + pageH - b.y) + 31 * mm + GAP);
     const band = h("div", { class: "band" }, h("span", {}, `Page ${n + (isWorksheet(exam) ? 1 : 2)}`));
     gap.append(band);

@@ -156,13 +156,15 @@ def main() -> int:
                 "maths": page.locator("#paper .ML__latex").count(),
             }
             page.screenshot(path=str(data_dir / "imported.png"), full_page=True)
-            mixed = mixed_exam(exam)
-            mixed_result = exam_format.validate(mixed)
-            assert mixed_result["ok"], mixed_result["errors"]
-            mixed_packed = exam_format.pack(exam_format.normalise(mixed, mixed_result["total_marks"]))
-            problem = print_matches_preview(page, url.split("#")[0] + "#data=" + mixed_packed)
-            if problem:
-                failures.append(f"mixed exam: {problem}")
+            for seed in range(1, 6):
+                mixed = mixed_exam(exam, seed)
+                mixed_result = exam_format.validate(mixed)
+                assert mixed_result["ok"], mixed_result["errors"]
+                mixed_packed = exam_format.pack(exam_format.normalise(mixed, mixed_result["total_marks"]))
+                problem = print_matches_preview(page, url.split("#")[0] + "#data=" + mixed_packed)
+                print(f"mixed exam {seed}: {problem or 'prints as previewed'}")
+                if problem:
+                    failures.append(f"mixed exam {seed}: {problem}")
             browser.close()
     finally:
         if httpd:
