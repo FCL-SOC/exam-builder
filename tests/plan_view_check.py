@@ -41,8 +41,8 @@ window.startHost = async (iframe, html, toolResult) => {
   await bridge.connect(new PostMessageTransport(iframe.contentWindow, iframe.contentWindow));
   iframe.srcdoc = html;
   await ready;
-  await bridge.sendToolResult(toolResult);
   window.bridge = bridge;
+  if (toolResult) await bridge.sendToolResult(toolResult);
 };
 """
 
@@ -171,6 +171,45 @@ def main() -> int:
             view.wait_for_selector("#fallback:not([hidden])", timeout=3000)
             check("a refused link shows the address instead",
                   f"plans.html#plan={uid}" in view.inner_text("#fallback"), view.inner_text("#fallback"))
+            # While Claude is still writing: the text streams into a fresh preview before anything is saved.
+            def new_view(frame_id):
+                page.evaluate("""id => { const f = document.createElement('iframe'); f.id = id; f.sandbox = 'allow-scripts';
+                    f.style.width = '760px'; f.style.height = '600px'; document.body.append(f); }""", frame_id)
+                page.evaluate("([id, html]) => window.startHost(document.getElementById(id), html, null)", [frame_id, page_html])
+                return page.frame_locator(f"#{frame_id}")
+
+            stream = new_view("stream")
+            details = {"class_code": "9SC2", "topic": "Balancing equations", "lesson_date": "2026-10-15"}
+            page.evaluate("a => window.bridge.sendToolInputPartial({ arguments: a })",
+                          {"details": details, "sections": {"L": "**Learning Intentions**\nTo bal"}})
+            stream.locator("text=To bal").wait_for(timeout=3000)
+            check("a draft shows while Claude is still writing", "Claude is writing" in stream.locator("#status").inner_text())
+            check("the section being written is marked", stream.locator('tr[data-k="L"].writing').count() == 1)
+            check("the draft's title", stream.locator("#title").inner_text() == "9SC2 · Balancing equations")
+            page.evaluate("a => window.bridge.sendToolInputPartial({ arguments: a })",
+                          {"details": details, "sections": {"L": "**Learning Intentions**\nTo balance equations.",
+                                                            "E": "**Coefficient**\nThe number in front"}})
+            stream.locator("text=The number in front").wait_for(timeout=3000)
+            check("the next section streams in", stream.locator('tr[data-k="E"].writing').count() == 1
+                  and stream.locator("tr.writing").count() == 1)
+            final_args = {"details": details, "sections": {"L": "**Learning Intentions**\nTo balance equations.",
+                                                           "E": "**Coefficient**\nThe number in front of a formula."}}
+            page.evaluate("a => window.bridge.sendToolInput({ arguments: a })", final_args)
+            stream.locator("text=Saving").wait_for(timeout=3000)
+            saved = mcp(endpoint, "tools/call", {"name": "write_lesson_plan", "arguments": final_args})
+            page.evaluate("r => window.bridge.sendToolResult(r)", saved)
+            stream.locator("#status", has_text="Saved").wait_for(timeout=3000)
+            check("then it is saved, with the link", stream.locator("#open").is_visible()
+                  and stream.locator("tr.writing").count() == 0)
+
+            # Changing a saved plan: the plan shows, and only the section being rewritten streams over it.
+            edit = new_view("edit")
+            page.evaluate("a => window.bridge.sendToolInputPartial({ arguments: a })",
+                          {"plan_id": uid, "sections": {"R": "- Rate your conf"}})
+            edit.locator("text=Rate your conf").wait_for(timeout=5000)
+            check("an edit shows the saved plan around the new text",
+                  "Exercise 4F" in edit.locator("#rows").inner_text() and edit.locator('tr[data-k="R"].writing').count() == 1,
+                  edit.locator("#rows").inner_text()[:300])
             check("no page errors", not errors, errors)
             if os.environ.get("KEEP_OUTPUT"):
                 page.locator("#view").screenshot(path=os.environ["KEEP_OUTPUT"])
