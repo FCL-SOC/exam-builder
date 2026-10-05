@@ -8,10 +8,12 @@
 // Settings come from the extension's install screen (manifest.json user_config), as environment variables:
 //   EXAM_CONNECTOR_URL  e.g. http://8801-openai-01:7901
 //   STAFF_CODE          e.g. ABC
+//   OPEN_WITH           testing only: the program that opens editor links (default: the system browser)
 
 "use strict";
 
 const readline = require("node:readline");
+const { spawn } = require("node:child_process");
 
 const BASE = (process.env.EXAM_CONNECTOR_URL || "").trim().replace(/\/+$/, "").replace(/\/mcp$/, "");
 const STAFF_CODE = (process.env.STAFF_CODE || "").trim().toUpperCase();
@@ -19,6 +21,25 @@ const TIMEOUT_MS = 60_000;
 
 let protocolVersion = null;  // learnt from the initialize reply; sent on every later request, as MCP asks
 let queue = Promise.resolve();  // answer in the order asked
+
+const opened = new Set();  // editor links already opened in the browser this session
+
+// The first time Claude creates or reads an exam or lesson plan, open it in the teacher's browser so they watch it
+// change. Only plain http(s) links: on Windows the link goes through cmd, so nothing cmd treats as special.
+function openEditor(link) {
+  if (typeof link !== "string" || opened.has(link) || !/^https?:\/\/[^\s"&^|<>%]+$/.test(link)) return;
+  opened.add(link);
+  const [cmd, args] = process.env.OPEN_WITH ? [process.env.OPEN_WITH, [link]]
+    : process.platform === "win32" ? ["cmd", ["/c", "start", "", link]]
+    : process.platform === "darwin" ? ["open", [link]] : ["xdg-open", [link]];
+  try {
+    const child = spawn(cmd, args, { detached: true, stdio: "ignore", windowsHide: true });
+    child.on("error", e => log("couldn't open the editor:", e.message));
+    child.unref();
+  } catch (e) {
+    log("couldn't open the editor:", e.message);
+  }
+}
 
 const log = (...args) => process.stderr.write(`[exam-assistant] ${args.join(" ")}\n`);
 const send = message => process.stdout.write(JSON.stringify(message) + "\n");
@@ -58,6 +79,7 @@ async function forward(message) {
     : [JSON.parse(text)];
   for (const reply of replies.flat()) {
     if (message.method === "initialize" && reply.result?.protocolVersion) protocolVersion = reply.result.protocolVersion;
+    if (message.method === "tools/call") openEditor(reply.result?.structuredContent?.editor_link);
     send(reply);
   }
 }

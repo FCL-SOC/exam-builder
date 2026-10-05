@@ -2,9 +2,9 @@
   "manifest_version": "0.2",
   "name": "exam-assistant",
   "display_name": "Exam Assistant",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Write and edit exams, tests, SACs and lesson plans in your school's Exam Assistant, and watch them change live.",
-  "long_description": "Ask Claude to write an exam or a LEARN lesson plan, add or rewrite questions, or change a section, and the changes appear in Exam Assistant in your browser within a couple of seconds. Claude works in your own library (your staff code), only on the school network. If you and Claude change the same thing at once, your version is kept.",
+  "long_description": "Ask Claude to write an exam or a LEARN lesson plan, add or rewrite questions, or change a section, and Exam Assistant opens in your browser and shows the changes within a couple of seconds. Claude works in your own library (your staff code), only on the school network. If you and Claude change the same thing at once, your version is kept.",
   "author": {
     "name": "Exam Assistant",
     "url": "https://github.com/FCL-SOC/exam-builder"

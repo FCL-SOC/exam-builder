@@ -69,9 +69,15 @@ class DesktopExtensionTests(unittest.TestCase):
             p.terminate()
             p.wait()
 
-    def run_client(self, staff_code="abc", url=None, steps=None):
+    def run_client(self, staff_code="abc", url=None, steps=None, opened=None):
+        """`opened`: a file each editor link the proxy opens is appended to (the browser is never started)."""
+        opener = self.tmp / "opener.py"
+        opener.write_text("import sys\nopen(sys.argv[2], 'a').write(sys.argv[1] + '\\n')\n")
         params = StdioServerParameters(command="node", args=[str(PROXY)], env={
-            **os.environ, "EXAM_CONNECTOR_URL": url or self.connector, "STAFF_CODE": staff_code})
+            **os.environ, "EXAM_CONNECTOR_URL": url or self.connector, "STAFF_CODE": staff_code,
+            "OPEN_WITH": str(self.tmp / "open.sh")})
+        (self.tmp / "open.sh").write_text(f'#!/bin/sh\n"{sys.executable}" "{opener}" "$1" "{opened or os.devnull}"\n')
+        (self.tmp / "open.sh").chmod(0o755)
 
         async def go():
             async with Client(params) as c:
@@ -93,6 +99,19 @@ class DesktopExtensionTests(unittest.TestCase):
         with urllib.request.urlopen(f"{self.app}/api/exams/{created['exam_id']}?owner=ABC") as r:
             saved = json.loads(r.read())
         self.assertEqual((saved["owner"], saved["updated_by"]), ("ABC", "claude"))
+
+    @unittest.skipIf(os.name == "nt", "the stand-in opener is a shell script")
+    def test_the_editor_opens_once_per_exam(self):
+        opened = self.tmp / "opened.txt"
+
+        async def steps(c):
+            created = (await c.call_tool("create_exam", {"exam": SAMPLE})).structured_content
+            await c.call_tool("get_exam", {"exam_id": created["exam_id"]})
+            await c.call_tool("list_exams", {})
+            return created
+        created = self.run_client(steps=steps, opened=opened)
+        time.sleep(0.5)  # the opener runs detached
+        self.assertEqual(opened.read_text().split(), [created["editor_link"]])
 
     def test_edits_go_through(self):
         async def steps(c):
