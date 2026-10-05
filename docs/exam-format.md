@@ -98,6 +98,16 @@ editor and never printed. A multiple-choice question is usually worth 1 mark; it
 - Section `to_answer` sets "number of questions to be answered" on the cover (leave it out for all).
 - Images can't be supplied in an exam file; teachers add them in the editor.
 
+## Ids and images (exams saved in Exam Assistant)
+
+Every section, question and part in a saved exam has an `id` (8 hex characters), added automatically and never
+printed. Ids don't change when things are reordered, so tools that edit a saved exam address questions by id rather
+than by number. Leave `id` out of anything new; keep it on anything you are changing.
+
+Images are stored inside the exam (`{"type": "image", "value": "data:image/png;base64,…", "width": 60}`). Tools
+that show an exam to an AI replace `value` with a short `ref` (`"img-1a2b3c4d"`); keeping the ref keeps the image.
+New images can only be added in the editor.
+
 ## Opening an exam from a link
 
 The editor imports an exam from `#data=` in its address: the exam's JSON, compressed with raw DEFLATE, then

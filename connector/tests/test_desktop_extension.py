@@ -16,6 +16,7 @@ import tempfile
 import time
 import unittest
 import urllib.request
+import zipfile
 from pathlib import Path
 
 from mcp import Client, StdioServerParameters
@@ -122,6 +123,16 @@ class DesktopExtensionTests(unittest.TestCase):
         reply = json.loads(proc.stdout.strip())
         self.assertEqual(reply["id"], 1)
         self.assertIn("only works on the school network", reply["error"]["message"])
+
+
+class BundleTests(unittest.TestCase):
+    def test_the_packed_bundle_matches_its_source(self):
+        """exam-assistant.mcpb is what teachers install: rebuild it after changing the extension
+        (npx @anthropic-ai/mcpb pack connector/desktop-extension connector/desktop-extension/exam-assistant.mcpb)."""
+        folder = CONNECTOR / "desktop-extension"
+        with zipfile.ZipFile(folder / "exam-assistant.mcpb") as bundle:
+            for name in ("manifest.json", "server/index.js", "icon.png"):
+                self.assertEqual(bundle.read(name), (folder / name).read_bytes(), f"{name} is out of date in the bundle")
 
 
 if __name__ == "__main__":

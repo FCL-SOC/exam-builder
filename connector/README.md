@@ -1,98 +1,108 @@
 # Claude connector
 
-An MCP server that lets Claude write an exam and hand the teacher a link that opens it in Exam Assistant,
-ready to edit and print. The teacher uses their own Claude account; this server only checks the exam against
-the editor's rules and turns it into a link.
+Lets teachers use Claude to write and edit exams in Exam Assistant. It runs in one of two modes.
+
+| | **School mode** (on the school network) | **Link mode** (hosted publicly) |
+|---|---|---|
+| Teachers use | Claude Desktop, with the extension in `desktop-extension/` | Claude on the web, desktop or phone |
+| Claude can | create exams and edit any question, in the teacher's own library | write a whole exam and give a link to it |
+| Teacher sees | changes appear live in their open editor | the exam when they open the link |
+| Saved | yes, in Exam Assistant | only if opened on the school server |
+
+The teacher guide is [TEACHERS.md](TEACHERS.md).
+
+## School mode
 
 ```
-Teacher ──asks──▶ Claude ──create_exam_link──▶ this server ──▶ https://…/e/Ab3xYz09Qw1R
-                                                                    │
-                       ┌────────────────────────────────────────────┤
-                       ▼                                            ▼
-     school server  http://examserver:7900/#data=…     online editor  https://fcl-soc.github.io/exam-builder/#data=…
-     (saved under the teacher's staff code)            (nothing saved: print or save as PDF)
+Claude Desktop ──▶ extension (on each teacher's PC) ──▶ connector :7901 ──▶ Exam Assistant :7900 ──▶ exams.db
+                                                                                  ▲
+                                                 teacher's browser, exam open ────┘  (checks every 2 s)
 ```
 
-The exam travels in the `#data=` part of the address, which browsers never send to a server, so it doesn't reach
-GitHub. This server keeps each packed exam for 30 days so the link Claude gives is short; it stores nothing
-else (no staff codes, no names, no school data).
+The connector runs next to Exam Assistant and changes exams only through its web API, using the same version check
+as the editor. If the teacher and Claude change an exam at the same moment, nothing is overwritten: each change is
+merged question by question, and when both changed the same question the teacher's version wins.
 
-## Tools
+### Set up the server (once)
 
-| Tool | What it does |
+1. Run `setup-connector.bat` (after `setup.bat`). It adds pip to the portable Python, installs the packages in
+   `requirements.txt`, and opens port 7901 in Windows Firewall (that step needs "Run as administrator"; otherwise
+   ask IT to allow inbound TCP 7901).
+2. Restart `start.bat`. It now also starts the connector, minimised in its own window, and prints its address.
+
+`start.bat` fills in these settings from the computer's name; set them as environment variables to override:
+
+| Variable | Default from start.bat | |
+|---|---|---|
+| `EXAM_SERVER` | `http://127.0.0.1:7900` | Exam Assistant, as the connector reaches it |
+| `EDITOR_URL` | `http://<computer name>:7900/` | Exam Assistant, as teachers' browsers reach it (in Claude's links) |
+| `PUBLIC_URL` | `http://<computer name>:7901` | The connector's own address |
+| `DATA_DIR` | `connector\data` | Where the version before each of Claude's changes is kept (30 days) |
+
+Check it's running: open `http://<computer name>:7901/healthz` from a teacher's PC.
+
+### Set up each teacher (once)
+
+Give teachers `desktop-extension/exam-assistant.mcpb`. They double-click it with Claude Desktop open, enter their
+staff code, and click Install. The connector address is filled in as `http://8801-openai-01:7901`; if the server
+moves, change it in the extension's settings, or edit `desktop-extension/manifest.json` and rebuild the bundle:
+
+```
+npx @anthropic-ai/mcpb pack connector/desktop-extension connector/desktop-extension/exam-assistant.mcpb
+```
+
+On a Team or Enterprise plan, an owner may need to allow the extension in the organisation's admin settings
+first, and can deploy it to everyone ([Claude Help Centre](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop)).
+
+### Tools
+
+| Tool | |
 |---|---|
-| `get_exam_format` | The authoring guide ([docs/exam-format.md](../docs/exam-format.md)), a complete example and the JSON Schema |
-| `check_exam` | Errors (must fix) and warnings (advice), using the editor's own rules, including its graph-expression parser |
-| `create_exam_link` | Checks, then returns the link, the total marks and any warnings |
+| `get_exam_format` | The format guide ([docs/exam-format.md](../docs/exam-format.md)), an example and the JSON Schema |
+| `list_exams` | The teacher's exams |
+| `get_exam` | A numbered outline with ids, the exam's content, and the editor link |
+| `create_exam` | A whole new exam in one go |
+| `edit_exam` | Changes applied all or nothing: `add`, `replace`, `remove`, `move` questions and parts; `add_section`, `update_section`; `update_details` (cover) |
+| `restore_version` | Puts the exam back as it was before Claude's last change(s) |
 
-There is also a `write_exam` prompt (subject, year level, topic, assessment type, marks, minutes, notes).
+Content is checked with the editor's own rules (including its graph-expression parser) before anything is saved.
+Only problems in what Claude changed stop a change; a teacher's own half-finished questions don't. Images stay in
+the exam but are never sent to Claude: they appear as refs Claude can keep or move, and only teachers add new ones.
 
-## Run it locally
+### Limits
+
+- **Claude Desktop only, on the school network.** Claude's web and phone apps reach connectors from Anthropic's
+  servers, which can't see the school network.
+- **Staff codes aren't passwords** — the same as in the editor. Anyone can type any code in the extension, just as
+  they can in the browser. Fine on the school network; don't expose port 7901 to the internet.
+- **While a teacher's cursor is in a text box,** the page doesn't redraw under it; Claude's other changes appear as
+  soon as they click away.
+
+## Link mode
+
+Run anywhere public, without `EXAM_SERVER`:
 
 ```
 pip install -r connector/requirements.txt
-python connector/server.py
+python connector/server.py                         # http://localhost:8000/mcp
 ```
 
-It listens on `http://localhost:8000/mcp`. To try it with Claude Desktop before hosting it, add it to
-`claude_desktop_config.json` through the `mcp-remote` bridge:
+Tools: `get_exam_format`, `check_exam`, `create_exam_link`. The link opens the exam in the online editor (nothing is
+saved; print or save as PDF) and, if `SCHOOL_URL` is set, offers "Open on the school server", which saves it. The
+exam travels in the link's `#data=` part, which browsers never send to a server; the connector keeps each exam for
+`LINK_DAYS` (30) so the link Claude gives is short.
 
-```json
-{"mcpServers": {"exam-assistant": {"command": "npx", "args": ["mcp-remote", "http://localhost:8000/mcp"]}}}
-```
-
-## Host it
-
-Claude's web and mobile apps reach custom connectors from Anthropic's servers, so the connector needs a public
-`https://` address. Any host that runs a Docker container with a small persistent disk works.
-
-**Render (deploys from GitHub on every push):** New → Blueprint → pick this repository. It reads
-[`render.yaml`](../render.yaml). Set `PUBLIC_URL` to the service's address once Render shows it, and optionally
-`SCHOOL_URL`. The disk needs a paid instance; on a free instance every link is lost whenever it goes to sleep.
-
-**Anywhere else:**
-
-```
-docker build -f connector/Dockerfile -t exam-connector .
-docker run -d -p 8000:8000 -v exam-links:/data \
-  -e PUBLIC_URL=https://exams-connector.example.org -e TRUST_PROXY=1 exam-connector
-```
-
-Put it behind HTTPS (your host's, or a reverse proxy). `TRUST_PROXY=1` makes the rate limit use the real client
-address from `X-Forwarded-For`; only set it behind a proxy you control.
-
-| Variable | Default | |
-|---|---|---|
-| `PUBLIC_URL` | `http://localhost:8000` | This server's public address. Used in links and the allowed `Host` header |
-| `SCHOOL_URL` | (none) | Your school's Exam Assistant. Links then offer "Open on the school server", which saves into the teacher's exams. It only has to be reachable from teachers' browsers, not from this server |
-| `DEMO_URL` | GitHub Pages demo | The online editor links open in |
-| `DATA_DIR` | `connector/data` | Where links are kept (`links.db`) |
-| `LINK_DAYS` | `30` | How long a link works |
-| `PORT` | `8000` | |
-
-## Add it to Claude
-
-In Claude, add a custom connector (Settings → Connectors) with the URL `https://<your host>/mcp`. On a Team or
-Enterprise plan an owner may need to add it for the organisation first. No sign-in is needed: the connector holds
-nothing private.
-
-Then ask, for example: *"Write a 40-mark Year 10 Mathematics test on quadratics, 50 minutes, scientific calculator."*
-
-## Limits
-
-- **Images** can't be included; Claude says where one should go and the teacher adds it in the editor.
-- **One-way:** Claude makes a new exam each time. Edits after opening the link happen in the editor.
-- **Assessment security:** exam content passes through Claude and this server. Fine for practice and
-  classroom tests; follow your school's policy for SACs and exams.
-- The server is open to anyone with its address. Each client is limited to 120 calls per 10 minutes, exams are
-  capped at 300 KB and links expire.
+Hosting: [`render.yaml`](../render.yaml) deploys it from GitHub on Render (needs a paid instance with a disk), or
+`docker build -f connector/Dockerfile .` anywhere with HTTPS in front. Then add `https://<host>/mcp` in Claude as a
+custom connector. Settings: `PUBLIC_URL`, `SCHOOL_URL`, `DEMO_URL`, `DATA_DIR`, `LINK_DAYS`, `PORT`,
+`TRUST_PROXY` (see the top of `server.py`).
 
 ## Tests
 
 ```
-python -m unittest discover connector/tests          # validator, packing, tools, links, rate limit
-python tests/browser_check.py [--server]             # a link really opens in Chromium (needs Playwright)
+python -m unittest discover tests              # Exam Assistant, including the editor's merge (needs Node.js)
+python -m unittest discover connector/tests    # both modes, against a real Exam Assistant; the extension's proxy
+python tests/browser_check.py [--server]       # a #data= link opens in Chromium        (these need Playwright)
+python tests/live_check.py                     # live updates and merging in the editor
+python tests/school_check.py                   # school mode end to end, with the teacher watching
 ```
-
-The validator's graph-expression parser is a port of `compileExpr` in `static/index.html`; a test runs the
-editor's JavaScript with Node and fails if the two ever disagree.

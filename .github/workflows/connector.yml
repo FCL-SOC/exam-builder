@@ -33,5 +33,6 @@ jobs:
           python tests/browser_check.py
           python tests/browser_check.py --server
           python tests/live_check.py
+          python tests/school_check.py
       - name: Docker image builds
         run: docker build -f connector/Dockerfile -t exam-connector .
