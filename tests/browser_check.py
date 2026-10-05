@@ -10,7 +10,11 @@ Not part of the default pytest run (it needs Playwright and Chromium):
 Exits non-zero on any failure.
 """
 
+import base64
+import copy
 import json
+import random
+import re
 import shutil
 import socket
 import sqlite3
@@ -18,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zlib
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -33,6 +38,70 @@ def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def png(w: int, h: int) -> str:
+    """A plain w x h picture as a data URI."""
+    chunk = lambda kind, data: (len(data).to_bytes(4, "big") + kind + data  # noqa: E731
+                                + zlib.crc32(kind + data).to_bytes(4, "big"))
+    rows = b"".join(b"\x00" + b"\x80\x80\xc0" * w for _ in range(h))
+    ihdr = w.to_bytes(4, "big") + h.to_bytes(4, "big") + bytes([8, 2, 0, 0, 0])
+    raw = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+    return "data:image/png;base64," + base64.b64encode(raw).decode()
+
+
+def mixed_exam(sample: dict, seed: int = 2) -> dict:
+    """Three sections of questions and parts built at random from the sample's blocks plus a picture, an equation
+    and long maths text: tall parts, parts that only just fit a page, and a last question that nearly fills one,
+    which is where the preview's page breaks and Chrome's used to disagree."""
+    blocks = []
+
+    def collect(it):
+        blocks.extend(it["blocks"])
+        for p in it.get("parts", []):
+            collect(p)
+    for s in sample["sections"]:
+        for q in s["questions"]:
+            collect(q)
+    blocks.append({"type": "image", "value": png(400, 260), "width": 60})
+    blocks.append({"type": "equation", "value": "\\frac{1}{2}mv^2 = mgh"})
+    blocks.append({"type": "text", "value": "Given that $\\frac{dy}{dx} = 3x^2 - 4$ and $y(1) = \\sqrt{2}$, find $y$ when "
+                   "$x = \\frac{3}{2}$. Show all working and give your answer correct to two decimal places."})
+    leaf = [b for b in blocks if b["type"] != "choices"]
+    mc = [next(b for b in blocks if b["type"] == "text"), next(b for b in blocks if b["type"] == "choices")]
+    rnd = random.Random(seed)
+
+    def item(depth):
+        it = {"blocks": [copy.deepcopy(rnd.choice(leaf)) for _ in range(rnd.randint(1, 3))], "parts": []}
+        if depth < 2 and rnd.random() < 0.5:
+            it["parts"] = [item(depth + 1) for _ in range(rnd.randint(2, 3))]
+        else:
+            it["marks"] = rnd.randint(1, 4)
+        return it
+    sections = []
+    for si in range(3):
+        qs = [item(0) for _ in range(rnd.randint(3, 6))]
+        if si == 0:
+            qs = [{"marks": 1, "blocks": copy.deepcopy(mc), "parts": []} for _ in range(4)] + qs
+        sections.append({"name": "ABC"[si], "description": "Mixed", "instructions": "Answer all questions.", "questions": qs})
+    return {**{k: v for k, v in sample.items() if k != "sections"}, "unit": f"Mixed check {seed}", "sections": sections}
+
+
+def print_matches_preview(browser, url: str) -> str | None:
+    """Open an exam and print it: Chrome must break pages exactly where the preview shows them (no blank pages,
+    nothing pushed on). None if it does, else what differs."""
+    page = browser.new_page()  # a new #data= in the old tab would only be a hash change, not a fresh load
+    try:
+        page.goto(url)
+        page.fill("#code", "ABC")
+        page.wait_for_selector("#editor-view:not([hidden]) .qhead")
+        page.wait_for_timeout(3000)  # maths, pictures and the 250 ms repaginate settle
+        shown = page.locator("#paper .band").count() + 3  # the cover, the pages the preview draws, the extra page
+        printed = len(re.findall(rb"/Type\s*/Page[^s]", page.pdf(prefer_css_page_size=True)))
+        questions = page.locator("#paper .qhead").count()
+    finally:
+        page.close()
+    return None if printed == shown else f"{questions} questions: preview shows {shown} pages but it prints on {printed}"
 
 
 def main() -> int:
@@ -93,6 +162,15 @@ def main() -> int:
                 "maths": page.locator("#paper .ML__latex").count(),
             }
             page.screenshot(path=str(data_dir / "imported.png"), full_page=True)
+            for seed in range(1, 6):
+                mixed = mixed_exam(exam, seed)
+                mixed_result = exam_format.validate(mixed)
+                assert mixed_result["ok"], mixed_result["errors"]
+                mixed_packed = exam_format.pack(exam_format.normalise(mixed, mixed_result["total_marks"]))
+                problem = print_matches_preview(browser, url.split("#")[0] + "#data=" + mixed_packed)
+                print(f"mixed exam {seed}: {problem or 'prints as previewed'}")
+                if problem:
+                    failures.append(f"mixed exam {seed}: {problem}")
             browser.close()
     finally:
         if httpd:
