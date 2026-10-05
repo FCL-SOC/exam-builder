@@ -80,9 +80,28 @@ log = logging.getLogger("exam-connector")
 GUIDE = (ROOT / "docs" / "exam-format.md").read_text(encoding="utf-8")
 DEFAULT_STYLE_GUIDE = (ROOT / "docs" / "question-style-guide.md").read_text(encoding="utf-8")
 DEFAULT_PLAN_GUIDE = (ROOT / "docs" / "lesson-plan-guide.md").read_text(encoding="utf-8")
-# The lesson plan preview shown in the chat, with the app's own formatting code inside it (one copy of the rules).
-PLAN_VIEW_HTML = (HERE / "lesson-plan-view.html").read_text(encoding="utf-8").replace(
-    "/*PLAN_EXPORT_JS*/", (ROOT / "static" / "plan-export.js").read_text(encoding="utf-8"))
+MCP_APPS_CLIENT = HERE / "vendor" / "mcp-apps-app-1.7.5.js"
+
+
+def _plan_view_html() -> str:
+    """The lesson plan preview shown in the chat: the page, with the app's own formatting code (one copy of the rules)
+    and the official MCP Apps client embedded. The client is an ES module ending in `export{… as App, …}`; that line
+    becomes window.McpApps, so the page's own script can use it without fetching anything."""
+    client = MCP_APPS_CLIENT.read_text(encoding="utf-8").rstrip().rstrip(";")
+    exports = re.search(r"export\{([^{}]*)\}$", client)
+    if not exports:
+        raise RuntimeError(f"{MCP_APPS_CLIENT.name} doesn't end in an export list; see connector/vendor/README.md")
+    names = dict(reversed(part.strip().split(" as ")) if " as " in part else (part.strip(),) * 2
+                 for part in exports.group(1).split(","))
+    client = client[:exports.start()] + f"window.McpApps = {{ App: {names['App']} }};"
+    if "</script" in client.lower():
+        raise RuntimeError(f"{MCP_APPS_CLIENT.name} contains </script, which would end the page's script early")
+    return ((HERE / "lesson-plan-view.html").read_text(encoding="utf-8")
+            .replace("/*PLAN_EXPORT_JS*/", (ROOT / "static" / "plan-export.js").read_text(encoding="utf-8"))
+            .replace("/*MCP_APPS_CLIENT*/", client))
+
+
+PLAN_VIEW_HTML = _plan_view_html()
 EXAMPLE = json.loads((ROOT / "examples" / "sample_exam.json").read_text(encoding="utf-8"))
 
 

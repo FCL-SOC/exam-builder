@@ -6,9 +6,9 @@
   and keeps itself up to date while Claude, or the teacher in Exam Assistant, changes it. Read-only: editing,
   Copy for Compass and Word are in Exam Assistant, one click away.
 
-  It talks to Claude with the MCP Apps protocol (JSON-RPC over postMessage); the few messages it needs are written
-  out below rather than loading the 300 KB client library, which the school's web filter might block anyway.
-  The text formatting is static/plan-export.js, inserted where PLAN_EXPORT_JS is, so it can't drift from Compass.
+  The official MCP Apps client is embedded where MCP_APPS_CLIENT is (connector/vendor/), so nothing is fetched from
+  the internet, which the school's web filter could block. The text formatting is static/plan-export.js, inserted
+  where PLAN_EXPORT_JS is, so it can't drift from Compass.
 -->
 <style>
   :root { --bg: var(--color-background-primary, #fff); --fg: var(--color-text-primary, #1d2330);
@@ -34,40 +34,19 @@
   <div class="meta" id="meta"></div></header>
 <table><tbody id="rows"></tbody></table>
 <div class="status" id="status">Waiting for the plan…</div>
+<div class="status" id="fallback" hidden>To open it, copy this address into your browser: <b id="address"></b></div>
 <script>
 /*PLAN_EXPORT_JS*/
 </script>
-<script>
-"use strict";
+<script type="module">
+/*MCP_APPS_CLIENT*/
+</script>
+<script type="module">
+const { App } = window.McpApps;
 const SECTIONS = [["L", "Learning Clarity"], ["E", "Explain"], ["A", "Application"], ["R", "Reflect"], ["N", "Next Steps"]];
 const POLL_MS = 3000, POLL_FOR_MS = 20 * 60 * 1000;  // live for 20 minutes after the plan is shown
 const $ = id => document.getElementById(id);
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 let planId = null, link = null, shown = null, pollUntil = 0;
-
-// ---------------------------------------------------------------- talking to Claude (MCP Apps protocol)
-let nextId = 1;
-const pending = new Map();
-const post = message => window.parent.postMessage({ jsonrpc: "2.0", ...message }, "*");
-const request = (method, params) => new Promise((resolve, reject) => {
-  const id = nextId++;
-  pending.set(id, { resolve, reject });
-  post({ id, method, params });
-});
-window.addEventListener("message", event => {
-  if (event.source !== window.parent) return;
-  const m = event.data;
-  if (!m || m.jsonrpc !== "2.0") return;
-  if (m.id !== undefined && !m.method) {  // a reply to one of our requests
-    const p = pending.get(m.id);
-    pending.delete(m.id);
-    if (p) m.error ? p.reject(new Error(m.error.message)) : p.resolve(m.result);
-  } else if (m.method === "ui/notifications/tool-result") {
-    show(m.params?.structuredContent);
-  } else if (m.id !== undefined) {  // a request from Claude (e.g. teardown, ping): nothing to do but say so
-    post({ id: m.id, result: {} });
-  }
-});
 
 // ---------------------------------------------------------------- showing the plan
 function show(result) {
@@ -77,7 +56,7 @@ function show(result) {
     return;
   }
   if (result.plan_id) planId = result.plan_id;
-  if (result.editor_link) { link = result.editor_link; $("open").hidden = false; }
+  if (result.editor_link) { link = result.editor_link; $("open").hidden = false; $("address").textContent = link; }
   const changed = new Set(shown ? SECTIONS.map(([k]) => k).filter(k => shown.sections?.[k] !== plan.sections?.[k]) : []);
   shown = plan;
   $("title").textContent = plan.title || "Lesson plan";
@@ -93,29 +72,36 @@ function show(result) {
   for (const el of document.querySelectorAll(".my-math")) el.textContent = latexToUnicode(el.textContent.replace(/^\\\[|\\\]$/g, ""), false);
   $("status").textContent = "Updates by itself while Claude works. Edit, copy for Compass or download Word in Exam Assistant.";
   pollUntil = Date.now() + POLL_FOR_MS;
-  sendSize();
 }
+
+// ---------------------------------------------------------------- talking to Claude (the official MCP Apps client)
+const app = new App({ name: "Exam Assistant lesson plan", version: "1.1.0" });
+app.ontoolresult = result => show(result.structuredContent);
 
 async function poll() {
   if (planId && Date.now() < pollUntil && !document.hidden) {
     try {
-      const r = await request("tools/call", { name: "lesson_plan_preview", arguments: { plan_id: planId } });
+      const r = await app.callServerTool({ name: "lesson_plan_preview", arguments: { plan_id: planId } });
       if (r?.structuredContent?.plan && JSON.stringify(r.structuredContent.plan) !== JSON.stringify(shown)) show(r.structuredContent);
     } catch { /* offline for a moment, or Claude didn't allow it: the last version stays on screen */ }
   }
   setTimeout(poll, POLL_MS);
 }
 
-function sendSize() {
-  post({ method: "ui/notifications/size-changed", params: { height: Math.ceil(document.documentElement.scrollHeight) } });
+// If Claude won't open the link, show the address so it can be copied into the browser.
+$("open").onclick = async () => {
+  if (!link) return;
+  let refused = false;
+  try { refused = (await app.openLink({ url: link }))?.isError; } catch { refused = true; }
+  if (refused) $("fallback").hidden = false;
+};
+
+try {
+  await app.connect();
+  setTimeout(poll, POLL_MS);
+} catch (e) {
+  $("status").textContent = `The preview couldn't connect to Claude (${e.message}). Open the plan in Exam Assistant.`;
+  $("fallback").hidden = false;
 }
-new ResizeObserver(sendSize).observe(document.body);
-
-$("open").onclick = () => { if (link) request("ui/open-link", { url: link }).catch(() => {}); };
-
-request("ui/initialize", { appInfo: { name: "Exam Assistant lesson plan", version: "1.0.0" }, appCapabilities: {},
-                           protocolVersion: "2026-01-26" })
-  .then(() => { post({ method: "ui/notifications/initialized", params: {} }); setTimeout(poll, POLL_MS); })
-  .catch(() => { $("status").textContent = "Open the plan in Exam Assistant to see it."; });
 </script>
 </body></html>

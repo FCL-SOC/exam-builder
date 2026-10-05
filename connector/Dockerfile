@@ -11,6 +11,7 @@ COPY schema/ schema/
 COPY docs/exam-format.md docs/question-style-guide.md docs/lesson-plan-guide.md docs/
 COPY examples/ examples/
 COPY connector/*.py connector/*.html connector/
+COPY connector/vendor/ connector/vendor/
 COPY static/plan-export.js static/
 
 # Links live in /data: mount a persistent volume there, or links stop working when the container restarts.

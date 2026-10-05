@@ -42,6 +42,7 @@ window.startHost = async (iframe, html, toolResult) => {
   iframe.srcdoc = html;
   await ready;
   await bridge.sendToolResult(toolResult);
+  window.bridge = bridge;
 };
 """
 
@@ -164,6 +165,12 @@ def main() -> int:
             page.wait_for_function("window.opened.length === 1")
             check("Open in Exam Assistant opens the plan", page.evaluate("window.opened")[0] ==
                   f"http://8801-openai-01:7900/plans.html#plan={uid}", page.evaluate("window.opened"))
+            # If Claude refuses to open the link, the address is shown so the teacher can still get there.
+            page.evaluate("window.bridge.onopenlink = async () => ({ isError: true })")
+            view.click("#open")
+            view.wait_for_selector("#fallback:not([hidden])", timeout=3000)
+            check("a refused link shows the address instead",
+                  f"plans.html#plan={uid}" in view.inner_text("#fallback"), view.inner_text("#fallback"))
             check("no page errors", not errors, errors)
             if os.environ.get("KEEP_OUTPUT"):
                 page.locator("#view").screenshot(path=os.environ["KEEP_OUTPUT"])
