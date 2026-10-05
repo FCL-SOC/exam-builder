@@ -376,7 +376,7 @@ class SchoolModeTests(unittest.TestCase):
 
 LINES = {"type": "lines", "n": 2}
 TOOLS = ["get_format", "list_my_work", "read", "create_exam", "edit_exam", "write_lesson_plan",
-         "lesson_plan_preview", "undo"]
+         "preview", "undo"]
 L_TEXT = ("**Learning Intentions**\nTo complete the square for $x^2 + bx + c$.\n**Success Criteria**\n"
           "- I can expand $(x+3)^2$\n**Do Now**\nExpand $(x+2)^2$.")
 
@@ -483,27 +483,33 @@ class LessonPlanTests(unittest.TestCase):
         put("")
 
     def test_the_plan_shows_in_the_chat(self):
-        """write_lesson_plan carries an MCP App preview; the preview refreshes through a tool only it can see."""
+        """Writing tools carry an MCP App preview; the preview refreshes through a tool only it can see."""
         async def go():
             async with Client(connector.mcp) as c:
                 tools = {t.name: t for t in (await c.list_tools()).tools}
-                page = await c.read_resource("ui://exam-assistant/lesson-plan")
+                page = await c.read_resource("ui://exam-assistant/preview")
                 return tools, page
         tools, page = asyncio.run(go())
-        self.assertEqual(tools["write_lesson_plan"].meta["ui"]["resourceUri"], "ui://exam-assistant/lesson-plan")
-        self.assertEqual(tools["lesson_plan_preview"].meta["ui"]["visibility"], ["app"])
+        for name in ("write_lesson_plan", "create_exam", "edit_exam", "preview"):
+            self.assertEqual(tools[name].meta["ui"]["resourceUri"], "ui://exam-assistant/preview")
+        self.assertEqual(tools["preview"].meta["ui"]["visibility"], ["app"])
+        self.assertIsNone(tools["read"].meta)  # reading shows nothing in the chat
         content = page.contents[0]
         self.assertEqual(content.mime_type, "text/html;profile=mcp-app")
         self.assertIn("function compassHtml", content.text)  # the app's own formatting, inlined
         self.assertNotIn("/*PLAN_EXPORT_JS*/", content.text)
         uid = self.plan()
         self.call("write_lesson_plan", plan_id=uid, sections={"E": "**Square**"})
-        r = self.call("lesson_plan_preview", plan_id=uid)
+        r = self.call("preview", item_id=uid)
         self.assertEqual((r["plan"]["title"], r["plan"]["sections"]["L"], r["plan"]["sections"]["E"]),
                          ("10MM1 · Completing the square", L_TEXT, "**Square**"))
         created = self.call("write_lesson_plan", details={"topic": "New"}, sections={"N": "Next."})
         self.assertEqual(created["plan"]["sections"]["N"], "Next.")
         self.assertIn("plans.html#plan=", created["editor_link"])
+        exam_id = self.call("create_exam", exam=copy.deepcopy(SAMPLE))["exam_id"]
+        e = self.call("preview", item_id=exam_id)
+        self.assertEqual((e["exam_id"], len(e["exam"]["sections"])), (exam_id, len(SAMPLE["sections"])))
+        self.assertIn("#exam=", e["editor_link"])
 
     def test_restore_lesson_plan(self):
         uid = self.plan()

@@ -83,8 +83,8 @@ DEFAULT_PLAN_GUIDE = (ROOT / "docs" / "lesson-plan-guide.md").read_text(encoding
 MCP_APPS_CLIENT = HERE / "vendor" / "mcp-apps-app-1.7.5.js"
 
 
-def _plan_view_html() -> str:
-    """The lesson plan preview shown in the chat: the page, with the app's own formatting code (one copy of the rules)
+def _preview_html() -> str:
+    """The preview shown in the chat for lesson plans and exams: the page, with the app's own formatting code (one copy of the rules)
     and the official MCP Apps client embedded. The client is an ES module ending in `export{… as App, …}`; that line
     becomes window.McpApps, so the page's own script can use it without fetching anything."""
     client = MCP_APPS_CLIENT.read_text(encoding="utf-8").rstrip().rstrip(";")
@@ -96,12 +96,12 @@ def _plan_view_html() -> str:
     client = client[:exports.start()] + f"window.McpApps = {{ App: {names['App']} }};"
     if "</script" in client.lower():
         raise RuntimeError(f"{MCP_APPS_CLIENT.name} contains </script, which would end the page's script early")
-    return ((HERE / "lesson-plan-view.html").read_text(encoding="utf-8")
+    return ((HERE / "preview.html").read_text(encoding="utf-8")
             .replace("/*PLAN_EXPORT_JS*/", (ROOT / "static" / "plan-export.js").read_text(encoding="utf-8"))
             .replace("/*MCP_APPS_CLIENT*/", client))
 
 
-PLAN_VIEW_HTML = _plan_view_html()
+PREVIEW_HTML = _preview_html()
 EXAMPLE = json.loads((ROOT / "examples" / "sample_exam.json").read_text(encoding="utf-8"))
 
 
@@ -151,7 +151,7 @@ Creates and edits exams and lesson plans in this school's Exam Assistant, which 
 Changes you save appear there within a couple of seconds, so they can watch and adjust as you go.
 
 New exam: get_format(kind="exam") once, then create_exam with the whole exam (all sections and questions at once).
-Give the teacher the editor_link to open; from then on they see your changes live.
+The exam shows in the chat as you write it; the editor_link opens it in Exam Assistant to edit and print.
 
 Existing exam: list_my_work to find it, read for its outline and ids, then edit_exam with only the changes asked
 for (one call can carry many changes). Address sections, questions and parts by id, never by number: numbers shift
@@ -194,6 +194,9 @@ if MODE == "school":
     school = school_mode.School(school_mode.ExamServer(EXAM_SERVER), school_mode.History(DATA_DIR / "history.db"),
                                 EDITOR_URL)
     book = plan_mode.PlanBook(school.server, school.history, EDITOR_URL)
+    # The preview in the chat (an MCP App): shown with each exam or plan Claude writes, streamed as it is written.
+    PREVIEW = "ui://exam-assistant/preview"
+    SHOWN_IN_CHAT = {"ui": {"resourceUri": PREVIEW}}
 
     def staff_code(ctx: Context) -> str:
         """The teacher's code, sent by their Claude Desktop extension. Like the editor's, it is not a password."""
@@ -271,7 +274,7 @@ if MODE == "school":
         return {"kind": "exam", "exam_id": item_id, "editor_link": school.link(item_id),
                 "read_only": found["owner"] != owner, "outline": school_mode.outline(shown, item_id), "exam": shown}
 
-    @mcp.tool(title="Create an exam", annotations=WRITE)
+    @mcp.tool(title="Create an exam", annotations=WRITE, meta=SHOWN_IN_CHAT)
     @guarded
     def create_exam(exam: ExamArg, ctx: Context) -> dict[str, Any]:
         """Create a new exam in the teacher's library from the whole exam (cover details, sections and questions).
@@ -289,7 +292,7 @@ if MODE == "school":
                 "warnings": result["warnings"],
                 "message": "Give the teacher the editor_link. Once it is open, changes you make appear there live."}
 
-    @mcp.tool(title="Change an exam", annotations=WRITE)
+    @mcp.tool(title="Change an exam", annotations=WRITE, meta=SHOWN_IN_CHAT)
     @guarded
     def edit_exam(exam_id: str,
                   changes: Annotated[list[school_mode.Change], Field(min_length=1, description=(
@@ -311,9 +314,8 @@ if MODE == "school":
         "sections you are writing or changing."))]
     DetailsArg = Annotated[dict[str, str] | None, Field(description=(
         "Any of: class_code (e.g. 10MM1), subject, year_level (e.g. 10), topic, lesson_date (YYYY-MM-DD)."))]
-    PLAN_VIEW = "ui://exam-assistant/lesson-plan"
 
-    @mcp.tool(title="Write a lesson plan", annotations=WRITE, meta={"ui": {"resourceUri": PLAN_VIEW}})
+    @mcp.tool(title="Write a lesson plan", annotations=WRITE, meta=SHOWN_IN_CHAT)
     @guarded
     def write_lesson_plan(ctx: Context, sections: SectionsArg = None, details: DetailsArg = None,
                           plan_id: Annotated[str | None, Field(description=(
@@ -331,20 +333,22 @@ if MODE == "school":
             raise ToolError("Give the sections and/or details to change.")
         return book.change(owner, plan_id, details or {}, sections or {}, ", ".join([*(sections or {}), *(details or {})]))
 
-    @mcp.tool(title="Lesson plan preview", annotations=READ,
-              meta={"ui": {"resourceUri": PLAN_VIEW, "visibility": ["app"]}})
+    @mcp.tool(title="Preview", annotations=READ, meta={"ui": {"resourceUri": PREVIEW, "visibility": ["app"]}})
     @guarded
-    def lesson_plan_preview(plan_id: str, ctx: Context) -> dict[str, Any]:
-        """For the preview in the chat only: the plan as it is now, so the preview keeps up with changes."""
+    def preview(item_id: str, ctx: Context) -> dict[str, Any]:
+        """For the preview in the chat only: the exam or lesson plan as it is now, so the preview keeps up."""
         owner = staff_code(ctx)
-        found = book.read(owner, plan_id)
-        return {"ok": True, "plan_id": plan_id, "editor_link": book.link(plan_id),
-                "plan": plan_mode.shown(found["exam"])}
+        if _kind(owner, item_id) == "lesson_plan":
+            found = book.read(owner, item_id)
+            return {"ok": True, "plan_id": item_id, "editor_link": book.link(item_id), "plan": plan_mode.shown(found["exam"])}
+        found = school.read(owner, item_id)
+        shown, _ = school_mode.hide_images(found["exam"])
+        return {"ok": True, "exam_id": item_id, "editor_link": school.link(item_id), "exam": shown}
 
-    @mcp.resource(PLAN_VIEW, name="Lesson plan preview", mime_type="text/html;profile=mcp-app",
-                  description="Shows a lesson plan in the chat, kept up to date.")
-    def lesson_plan_view() -> str:
-        return PLAN_VIEW_HTML
+    @mcp.resource(PREVIEW, name="Preview", mime_type="text/html;profile=mcp-app",
+                  description="Shows an exam or lesson plan in the chat as Claude writes it, kept up to date.")
+    def preview_page() -> str:
+        return PREVIEW_HTML
 
     @mcp.tool(title="Undo Claude's last change", annotations=WRITE)
     @guarded

@@ -1,10 +1,10 @@
 """
-The lesson plan preview Claude shows in the chat (connector/lesson-plan-view.html), in a real browser, driven by
+The preview Claude shows in the chat (connector/preview.html), for lesson plans and exams, in a real browser, driven by
 the reference MCP Apps host (AppBridge from @modelcontextprotocol/ext-apps) the way Claude Desktop drives it: the
 page is loaded into a sandboxed frame, given write_lesson_plan's result, and its own tool calls go to the real
 connector. Needs Node.js (to build the reference host once) and Playwright:
 
-    python tests/plan_view_check.py
+    python tests/preview_check.py
 
 Exits non-zero on any failure.
 """
@@ -116,7 +116,7 @@ def main() -> int:
             "sections": {"L": "**Learning Intentions**\nTo complete the square.\n**Success Criteria**\nI can expand $(x+3)^2$",
                          "E": "**Example**\n$$\\frac{b}{2}$$\nTickets cost \\$12.50."}}})
         uid = result["structuredContent"]["plan_id"]
-        page_html = mcp(endpoint, "resources/read", {"uri": "ui://exam-assistant/lesson-plan"})["contents"][0]["text"]
+        page_html = mcp(endpoint, "resources/read", {"uri": "ui://exam-assistant/preview"})["contents"][0]["text"]
         teacher = Api(app, "ABC")
 
         with sync_playwright() as p:
@@ -136,11 +136,11 @@ def main() -> int:
                           "new Promise((_, no) => setTimeout(() => no(new Error('the preview never said hello')), 10000))])",
                           [page_html, result])
             view = page.frames[1]
-            view.wait_for_function("document.querySelectorAll('#rows tr').length === 5", timeout=5000)
+            view.wait_for_function("document.querySelectorAll('table.learn tr').length === 5", timeout=5000)
 
             text = view.inner_text("body").replace("\u00a0", " ")
             check("the preview shows the plan's title", "10MM1 · Completing the square" in text, text[:200])
-            check("all five LEARN rows", view.locator("#rows tr").count() == 5)
+            check("all five LEARN rows", view.locator("table.learn tr").count() == 5)
             check("maths as it pastes into Compass", "(x+3)²" in text, text)
             check("a fraction written out", "b/2" in text, text)
             check("money", "$12.50" in text)
@@ -159,7 +159,7 @@ def main() -> int:
             check("the changed section flashes", view.locator('tr[data-k="A"].changed').count() == 1)
             check("only the changed section flashes", view.locator("tr.changed").count() == 1)
             check("refreshes go through the preview's own tool",
-                  set(page.evaluate("window.toolCalls")) == {"lesson_plan_preview"}, page.evaluate("window.toolCalls"))
+                  set(page.evaluate("window.toolCalls")) == {"preview"}, page.evaluate("window.toolCalls"))
 
             view.click("#open")
             page.wait_for_function("window.opened.length === 1")
@@ -208,8 +208,55 @@ def main() -> int:
                           {"plan_id": uid, "sections": {"R": "- Rate your conf"}})
             edit.locator("text=Rate your conf").wait_for(timeout=5000)
             check("an edit shows the saved plan around the new text",
-                  "Exercise 4F" in edit.locator("#rows").inner_text() and edit.locator('tr[data-k="R"].writing').count() == 1,
-                  edit.locator("#rows").inner_text()[:300])
+                  "Exercise 4F" in edit.locator("#content").inner_text() and edit.locator('tr[data-k="R"].writing').count() == 1,
+                  edit.locator("#content").inner_text()[:300])
+            # Exams: Claude writes a new one, streamed question by question, then saved.
+            sample = json.loads((ROOT / "examples" / "sample_exam.json").read_text(encoding="utf-8"))
+            first = sample["sections"][0]
+            ex = new_view("exam")
+            partial = {"exam": {"unit": sample.get("unit"), "subject": sample.get("subject"), "sections": [
+                {"name": first["name"], "description": first.get("description", ""), "questions": [first["questions"][0]]}]}}
+            page.evaluate("a => window.bridge.sendToolInputPartial({ arguments: a })", partial)
+            ex.locator(".item").first.wait_for(timeout=3000)
+            check("a new exam streams in while Claude writes", "Claude is writing" in ex.locator("#status").inner_text()
+                  and ex.locator(".item.writing").count() == 1, ex.locator("#status").inner_text())
+            partial["exam"]["sections"][0]["questions"].append(first["questions"][1])
+            page.evaluate("a => window.bridge.sendToolInputPartial({ arguments: a })", partial)
+            ex.locator(".item >> nth=1").wait_for(timeout=3000)
+            check("the next question appears, marked as being written",
+                  ex.locator(".item").count() >= 2 and ex.locator(".item.writing").count() == 1)
+            mc = [q for q in first["questions"] if any(b.get("type") == "choices" for b in q.get("blocks", []))]
+            if mc:
+                check("multiple choice shows the correct answer to the teacher", ex.locator("li.correct").count() >= 1)
+            created = mcp(endpoint, "tools/call", {"name": "create_exam", "arguments": {"exam": sample}})
+            exam_id = created["structuredContent"]["exam_id"]
+            page.evaluate("a => window.bridge.sendToolInput({ arguments: a })", {"exam": sample})
+            page.evaluate("r => window.bridge.sendToolResult(r)", created)
+            ex.locator("#status", has_text="Saved").wait_for(timeout=5000)
+            n_questions = sum(len(sec["questions"]) for sec in sample["sections"])
+            check("then the saved exam, every question", ex.locator(".body").count() >= n_questions
+                  and ex.locator(".item.writing").count() == 0 and ex.locator(".changed").count() == 0,
+                  ex.locator(".body").count())
+            check("with its sections and total marks", ex.locator(".section").count() == len(sample["sections"])
+                  and "marks" in ex.locator("#meta").inner_text(), ex.locator("#meta").inner_text())
+
+            # Changing a saved exam: it shows, Claude says what it is doing, and the changed question flashes.
+            saved_exam = mcp(endpoint, "tools/call", {"name": "preview", "arguments": {"item_id": exam_id}})["structuredContent"]["exam"]
+            target = saved_exam["sections"][-1]["questions"][0]["id"]
+            change = {"exam_id": exam_id, "changes": [{"op": "replace", "id": target, "item": {
+                "marks": 2, "blocks": [{"type": "text", "value": "Explain why the sky is blue."}, {"type": "lines", "n": 6}]}}]}
+            ed = new_view("examedit")
+            page.evaluate("a => window.bridge.sendToolInputPartial({ arguments: a })", {"exam_id": exam_id, "changes": [{"op": "replace"}]})
+            ed.locator("#status", has_text="rewriting").wait_for(timeout=5000)
+            check("an exam edit shows the exam and what Claude is doing", ed.locator(".item").count() >= n_questions)
+            edited = mcp(endpoint, "tools/call", {"name": "edit_exam", "arguments": change})
+            page.evaluate("a => window.bridge.sendToolInput({ arguments: a })", change)
+            page.evaluate("r => window.bridge.sendToolResult(r)", edited)
+            ed.locator("text=Explain why the sky is blue").wait_for(timeout=5000)
+            check("the changed question flashes, and only it", ed.locator(".changed").count() == 1
+                  and ed.locator(f'.changed[data-id="{target}"]').count() == 1, ed.locator(".changed").count())
+            if os.environ.get("KEEP_OUTPUT"):
+                page.locator("#exam").screenshot(path=os.environ["KEEP_OUTPUT"].replace(".png", "-exam.png"))
             check("no page errors", not errors, errors)
             if os.environ.get("KEEP_OUTPUT"):
                 page.locator("#view").screenshot(path=os.environ["KEEP_OUTPUT"])

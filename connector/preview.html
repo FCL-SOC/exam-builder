@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="color-scheme" content="light dark">
+<title>Exam Assistant</title>
+<!--
+  The preview Claude shows in the chat (an "MCP App") for a lesson plan or an exam. It shows the work as Claude
+  writes it (streamed, before it is saved), then the saved version, and keeps itself up to date while Claude or the
+  teacher changes it. Read-only: editing, printing, Copy for Compass and Word are in Exam Assistant, one click away.
+
+  The official MCP Apps client is embedded where MCP_APPS_CLIENT is (connector/vendor/), so nothing is fetched from
+  the internet, which the school's web filter could block. The text formatting is static/plan-export.js, inserted
+  where PLAN_EXPORT_JS is, so it can't drift from what is pasted into Compass.
+-->
+<style>
+  :root { --bg: var(--color-background-primary, #fff); --fg: var(--color-text-primary, #1d2330);
+          --muted: var(--color-text-secondary, #5b6475); --line: var(--color-border-secondary, #d5d9e0);
+          --accent: #8B0000; --ok: #1d7a3a; font-family: var(--font-sans, system-ui, "Segoe UI", Arial, sans-serif); }
+  body { margin: 0; padding: 10px 12px 12px; background: var(--bg); color: var(--fg); font-size: 14px; line-height: 1.5; }
+  header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  h1 { font-size: 16px; margin: 0; flex: 1; min-width: 12em; }
+  .meta { color: var(--muted); font-size: 13px; width: 100%; margin-top: -6px; }
+  button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 6px; cursor: pointer;
+           border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+  .empty, .note { color: var(--muted); font-style: italic; }
+  .status { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .changed { animation: flash 2.5s ease-out; }
+  .writing { background: rgba(255, 214, 0, .18); }
+  .writing > :last-child::after, tr.writing td:last-child::after { content: "▍"; color: var(--accent); animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes flash { from { background: rgba(255, 214, 0, .45); } to { background: transparent; } }
+
+  /* lesson plan: the LEARN table, as it pastes into Compass */
+  table.learn { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  table.learn td { border: 1px solid var(--line); padding: 6px 9px; vertical-align: top; overflow-wrap: anywhere; }
+  td.k { width: 26px; text-align: center; font-size: 18px; font-weight: 700; color: var(--accent); }
+  td.n { width: 92px; font-weight: 700; font-size: 12px; color: var(--muted); }
+  tr.changed td { animation: flash 2.5s ease-out; }
+  tr.writing td { background: rgba(255, 214, 0, .18); }
+
+  /* exam: sections and numbered questions, as they print (answer space as labels) */
+  .section { margin: 12px 0 4px; padding-bottom: 2px; border-bottom: 2px solid var(--accent); font-weight: 700; }
+  .section .desc { font-weight: 400; color: var(--muted); }
+  .item { display: grid; grid-template-columns: 2.2em 1fr auto; gap: 0 6px; padding: 4px 2px; border-radius: 4px; }
+  .item .num { font-weight: 700; }
+  .item .marks { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .item .body > * { margin: 2px 0; }
+  .item .parts { grid-column: 2 / 4; }
+  .part { grid-template-columns: 1.8em 1fr auto; }
+  .eq { text-align: center; }
+  .space { color: var(--muted); font-size: 12px; border: 1px dashed var(--line); border-radius: 4px; padding: 1px 8px; display: inline-block; }
+  ol.choices { list-style: upper-alpha; margin: 2px 0; padding-left: 1.8em; }
+  ol.choices li.correct { color: var(--ok); font-weight: 600; }
+  ol.choices li.correct::after { content: "  ✓ correct (not printed)"; font-weight: 400; font-size: 12px; }
+  table.data { border-collapse: collapse; margin: 2px 0; }
+  table.data td { border: 1px solid var(--line); padding: 2px 8px; min-width: 2.5em; }
+  table.data tr.head td { font-weight: 700; }
+</style></head>
+<body>
+<header><h1 id="title">Exam Assistant</h1><button id="open" hidden>Open in Exam Assistant</button>
+  <div class="meta" id="meta"></div></header>
+<div id="content"></div>
+<div class="status" id="status">Waiting for Claude…</div>
+<div class="status" id="fallback" hidden>To open it, copy this address into your browser: <b id="address"></b></div>
+<script>
+/*PLAN_EXPORT_JS*/
+</script>
+<script type="module">
+/*MCP_APPS_CLIENT*/
+</script>
+<script type="module">
+const { App } = window.McpApps;
+const POLL_MS = 3000, POLL_FOR_MS = 20 * 60 * 1000;  // live for 20 minutes after the work is shown
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const app = new App({ name: "Exam Assistant preview", version: "1.3.0" });
+
+let kind = null, itemId = null, link = null, shown = null, pollUntil = 0;
+let writing = false, base = null, baseAsked = false;  // while Claude writes: the saved version the new text goes over
+
+function setLink(url) {
+  if (!url) return;
+  link = url;
+  $("open").hidden = false;
+  $("address").textContent = url;
+}
+function longDate(iso) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso || "") ? new Date(iso + "T00:00").toLocaleDateString("en-AU",
+    { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "";
+}
+
+// ================================================================ lesson plans
+const SECTIONS = [["L", "Learning Clarity"], ["E", "Explain"], ["A", "Application"], ["R", "Reflect"], ["N", "Next Steps"]];
+
+function renderPlan(plan, writingKey = null) {
+  const changed = new Set(kind === "plan" && shown ? SECTIONS.map(([k]) => k).filter(k => shown.sections?.[k] !== plan.sections?.[k]) : []);
+  kind = "plan";
+  shown = plan;
+  $("title").textContent = plan.title || [plan.class_code, plan.topic].filter(Boolean).join(" · ") || "Lesson plan";
+  $("meta").textContent = [plan.subject, plan.year_level && `Year ${plan.year_level}`, longDate(plan.lesson_date)].filter(Boolean).join(" · ");
+  $("content").innerHTML = '<table class="learn"><tbody>' + SECTIONS.map(([k, name]) => {
+    const text = plan.sections?.[k] || "";
+    const body = text.trim() ? compassHtml(sectionText(k, text)) : '<span class="empty">Not written yet</span>';
+    const cls = k === writingKey ? "writing" : !writing && changed.has(k) ? "changed" : "";
+    return `<tr data-k="${k}" class="${cls}"><td class="k">${k}</td><td class="n">${name}</td><td>${body}</td></tr>`;
+  }).join("") + "</tbody></table>";
+  // Compass draws fractions as equations; here they are written out as text (b/2), which is enough for a preview.
+  for (const el of document.querySelectorAll(".my-math")) el.textContent = latexToUnicode(el.textContent.replace(/^\\\[|\\\]$/g, ""), false);
+}
+
+// ================================================================ exams
+const ROMAN = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii"];
+const label = (depth, i) => depth === 0 ? `${i + 1}` : depth === 1 ? `${String.fromCharCode(97 + i)}.` : `${ROMAN[i] || i + 1}.`;
+const marksOf = it => (it?.parts?.length ? it.parts.reduce((n, p) => n + marksOf(p), 0) : Number(it?.marks) || 0);
+const marksText = m => m === 1 ? "1 mark" : `${m} marks`;
+
+// Text with $maths$ written out (x², ½): the preview can't run the editor's equation renderer.
+function rich(text) {
+  return restoreDollars(esc(protectDollars(text))
+    .replace(/\$\$([^$]+)\$\$|\$([^$]+)\$/g, (_, d, m) => latexToUnicode((d || m).trim(), false))
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/\n/g, "<br>"));
+}
+function block(b) {
+  if (!b || typeof b !== "object") return "";
+  switch (b.type) {
+    case "text": return `<div>${rich(b.value || "")}</div>`;
+    case "equation": return `<div class="eq">${esc(latexToUnicode(String(b.value || ""), false))}</div>`;
+    case "lines": return `<div><span class="space">${b.n || "?"} answer lines</span></div>`;
+    case "box": return `<div><span class="space">working space, ${b.height_cm || "?"} cm</span></div>`;
+    case "answer": return `<div>${(b.boxes || []).map(x => `<span class="space">${rich(x.label || "")} ▭ ${rich(x.units || "")}</span>`).join(" ")}</div>`;
+    case "table": return `<table class="data">${(b.rows || []).map((r, i) => `<tr class="${i === 0 && b.header ? "head" : ""}">${
+      (Array.isArray(r) ? r : []).map(c => `<td>${rich(c)}</td>`).join("")}</tr>`).join("")}</table>`;
+    case "choices": return `<ol class="choices">${(b.options || []).map((o, i) => `<li class="${i === b.correct ? "correct" : ""}">${
+      typeof o === "string" ? rich(o) : `<span class="note">[${esc(o?.type || "picture")}]</span>`}</li>`).join("")}</ol>`;
+    case "graph": return `<div class="note">[graph${b.kind ? ": " + esc(b.kind) : ""}]</div>`;
+    case "image": return `<div class="note">[picture]</div>`;
+    default: return `<div class="note">[${esc(b.type || "block")}]</div>`;
+  }
+}
+function item(it, depth, i, flags) {
+  if (!it || typeof it !== "object") return "";
+  const own = it.parts?.length ? "" : `<span class="marks">${it.marks ? marksText(Number(it.marks)) : "no marks yet"}</span>`;
+  const cls = ["item", depth ? "part" : "", flags.writing === it ? "writing" : "", flags.changed.has(it.id) ? "changed" : ""].join(" ");
+  const total = depth === 0 && it.parts?.length ? `<span class="marks">${marksText(marksOf(it))}</span>` : own;
+  return `<div class="${cls}" data-id="${esc(it.id || "")}"><span class="num">${label(depth, i)}</span>` +
+    `<div class="body">${(it.blocks || []).map(block).join("")}</div>${total}` +
+    (it.parts?.length ? `<div class="parts">${it.parts.map((p, j) => item(p, depth + 1, j, flags)).join("")}</div>` : "") + "</div>";
+}
+// The last question or part in the exam: where Claude is writing while it streams.
+function lastItem(exam) {
+  let last = null;
+  const walk = it => { last = it; (it.parts || []).forEach(walk); };
+  (exam.sections || []).forEach(s => (s.questions || []).forEach(walk));
+  return last;
+}
+// Ids whose content differs from the version on screen, so they can flash.
+function changedIds(before, after) {
+  const map = exam => { const m = new Map(); const walk = it => { if (it?.id) m.set(it.id, JSON.stringify(it)); (it?.parts || []).forEach(walk); };
+                        (exam?.sections || []).forEach(s => (s.questions || []).forEach(walk)); return m; };
+  const a = map(before), b = map(after);
+  return new Set([...b].filter(([id, j]) => a.get(id) !== j).map(([id]) => id));
+}
+function renderExam(exam, streaming = false) {
+  const flags = { writing: streaming ? lastItem(exam) : null,
+                  changed: kind === "exam" && shown && !streaming ? changedIds(shown, exam) : new Set() };
+  kind = "exam";
+  shown = exam;
+  const title = exam.title || [exam.assessment_type, exam.unit || exam.subject].filter(Boolean).join(": ") || "Exam";
+  $("title").textContent = title;
+  const total = (exam.sections || []).reduce((n, s) => n + (s.questions || []).reduce((m, q) => m + marksOf(q), 0), 0);
+  $("meta").textContent = [exam.subject, exam.year_level && `Year ${exam.year_level}`, total && marksText(total),
+                           exam.writing_min && `${exam.writing_min} min writing`].filter(Boolean).join(" · ");
+  $("content").innerHTML = (exam.sections || []).map(s => s && typeof s === "object" ?
+    `<div class="section">Section ${esc(s.name || "")}${s.description ? ` <span class="desc">${rich(s.description)}</span>` : ""}</div>` +
+    (s.questions || []).map((q, i) => item(q, 0, i, flags)).join("") : "").join("") ||
+    '<p class="empty">No questions yet</p>';
+}
+
+// ================================================================ the saved version, and live updates
+function show(result) {
+  if (!result || typeof result !== "object") return;
+  if (result.ok === false) { writing = false; $("status").textContent = "Claude is still fixing this."; return; }
+  writing = false;
+  setLink(result.editor_link);
+  if (result.plan) {
+    itemId = result.plan_id || itemId;
+    renderPlan(result.plan);
+  } else if (result.exam && typeof result.exam === "object") {
+    itemId = result.exam_id || itemId;
+    renderExam(result.exam);
+  } else if (result.exam_id) {  // create_exam / edit_exam answer with an outline: fetch the exam itself to draw
+    itemId = result.exam_id;
+    if (!base) shown = null;  // a new exam: nothing on screen to compare with (the draft had no ids), so no flashing
+    kind = "exam";
+    refresh();
+  } else {
+    return;
+  }
+  $("status").textContent = "Saved. Updates by itself while Claude works. Edit or print in Exam Assistant.";
+  pollUntil = Date.now() + POLL_FOR_MS;
+}
+
+async function fetchSaved(id) {
+  const r = await app.callServerTool({ name: "preview", arguments: { item_id: id } });
+  return r?.structuredContent;
+}
+async function refresh() {
+  if (!itemId || writing) return;
+  try {
+    const r = await fetchSaved(itemId);
+    const now = r?.plan || r?.exam;
+    if (!writing && now && JSON.stringify(now) !== JSON.stringify(shown)) show(r);
+  } catch { /* offline for a moment, or Claude didn't allow it: the last version stays on screen */ }
+}
+async function poll() {
+  if (Date.now() < pollUntil && !document.hidden) await refresh();
+  setTimeout(poll, POLL_MS);
+}
+
+// ================================================================ while Claude is writing (streamed, not yet saved)
+const OPS = { add: "adding", replace: "rewriting", remove: "removing", move: "moving", add_section: "adding a section",
+              update_section: "changing a section heading", update_details: "changing the cover" };
+
+async function draft(args, complete = false) {
+  if (!args || typeof args !== "object") return;
+  writing = !complete;
+  const editing = args.plan_id || args.exam_id;
+  if (editing && !baseAsked) {  // a change to saved work: show it, with Claude's new text arriving over it
+    baseAsked = true;
+    try {
+      const r = await fetchSaved(editing);
+      base = r?.plan || r?.exam || null;
+      setLink(r?.editor_link);
+      itemId = editing;
+    } catch { /* the draft is shown on its own */ }
+  }
+  if (!writing && !complete) return;  // the saved result arrived while the saved version was loading
+  if (args.exam && typeof args.exam === "object") {           // create_exam: the whole exam, arriving
+    renderExam(args.exam, !complete);
+  } else if (args.exam_id) {                                   // edit_exam: changes to the saved exam
+    if (base) renderExam(base);
+    const ops = (Array.isArray(args.changes) ? args.changes : []).map(c => OPS[c?.op]).filter(Boolean);
+    $("status").textContent = complete ? "Saving…" : `Claude is changing this exam${ops.length ? ": " + [...new Set(ops)].join(", ") : ""}…`;
+    return;
+  } else {                                                     // write_lesson_plan
+    const details = args.details && typeof args.details === "object" ? args.details : {};
+    const sections = args.sections && typeof args.sections === "object" ? args.sections : {};
+    const plan = { ...(base || {}), ...details, sections: { ...(base?.sections || {}), ...sections } };
+    plan.title = [plan.class_code, plan.topic].filter(Boolean).join(" · ") || "Lesson plan";
+    const keys = Object.keys(sections);
+    renderPlan(plan, complete ? null : keys[keys.length - 1]);
+  }
+  $("status").textContent = complete ? "Saving…" : "Claude is writing…";
+}
+
+// ================================================================ talking to Claude (the official MCP Apps client)
+app.ontoolinputpartial = ({ arguments: args }) => draft(args);
+app.ontoolinput = ({ arguments: args }) => { if (writing || !shown) draft(args, true); };
+app.ontoolresult = result => show(result.structuredContent);
+app.ontoolcancelled = () => { writing = false; $("status").textContent = "Claude stopped before saving."; };
+
+// If Claude won't open the link, show the address so it can be copied into the browser.
+$("open").onclick = async () => {
+  if (!link) return;
+  let refused = false;
+  try { refused = (await app.openLink({ url: link }))?.isError; } catch { refused = true; }
+  if (refused) $("fallback").hidden = false;
+};
+
+try {
+  await app.connect();
+  setTimeout(poll, POLL_MS);
+} catch (e) {
+  $("status").textContent = `The preview couldn't connect to Claude (${e.message}). Open it in Exam Assistant.`;
+  $("fallback").hidden = false;
+}
+</script>
+</body></html>

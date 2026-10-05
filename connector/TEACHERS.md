@@ -39,8 +39,8 @@ Victorian Curriculum 2.0, and uses what you give it first.
 The first few times, Claude asks permission to use parts of Exam Assistant: click **Always allow**, and it won't
 ask again.
 
-A lesson plan also appears right in the chat as Claude writes it, and keeps itself up to date. To edit it, copy it
-into Compass or download it for Word, click **Open in Exam Assistant**.
+Exams and lesson plans appear right in the chat as Claude writes them, question by question, and keep themselves up
+to date. To edit, print, copy into Compass or download for Word, click **Open in Exam Assistant**.
 
 For a new exam or lesson plan, Claude gives you a link: click it once to open it. After that, Claude's changes appear on
 your screen within a couple of seconds, and the questions it changed flash yellow.

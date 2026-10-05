@@ -74,9 +74,12 @@ first, and can deploy it to everyone ([Claude Help Centre](https://support.claud
 | `write_lesson_plan` | A new lesson plan, or whole sections and details of one replaced (the rest kept). Shows the plan in the chat as a live preview |
 | `undo` | Puts an exam or lesson plan back as it was before Claude's last change(s) |
 
-Seven tools on purpose: Claude Desktop asks the teacher once per tool, so each one is a question. The preview is an
-[MCP App](https://claude.com/docs/connectors/building/mcp-apps/quickstart) (`connector/lesson-plan-view.html`) that
-refreshes itself through `lesson_plan_preview`, a tool only the preview can see.
+Seven tools on purpose: Claude Desktop asks the teacher once per tool, so each one is a question.
+
+`create_exam`, `edit_exam` and `write_lesson_plan` show the work in the chat as an
+[MCP App](https://claude.com/docs/connectors/building/mcp-apps/quickstart) (`connector/preview.html`): streamed while
+Claude writes it, then the saved version, kept up to date through `preview`, a tool only the preview can see. The
+official MCP Apps client is vendored in `connector/vendor/` and embedded in the page.
 
 Claude writes questions by the school's **question style guide**: command terms (as in the VCAA glossary), the
 marks each usually earns, answer space per mark, multiple-choice conventions and wording. It ships as
@@ -129,5 +132,5 @@ python tests/browser_check.py [--server]       # a #data= link opens in Chromium
 python tests/live_check.py                     # live updates and merging in the editor
 python tests/school_check.py                   # school mode end to end, with the teacher watching
 python tests/plans_check.py                    # lesson plans: live updates, merging, Copy for Compass, Word
-python tests/plan_view_check.py                # the preview in the chat, driven by the reference MCP Apps host (needs npm)
+python tests/preview_check.py                  # the preview in the chat, driven by the reference MCP Apps host (needs npm)
 ```

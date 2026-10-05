@@ -86,7 +86,7 @@ class DesktopExtensionTests(unittest.TestCase):
             return tools, created.structured_content, listed.structured_content
         tools, created, listed = self.run_client(steps=steps)
         self.assertEqual(tools, ["get_format", "list_my_work", "read", "create_exam", "edit_exam", "write_lesson_plan",
-                                 "lesson_plan_preview", "undo"])
+                                 "preview", "undo"])
         self.assertTrue(created["ok"], created)
         self.assertEqual(listed["staff_code"], "ABC")  # the code from the install screen, upper-cased
         with urllib.request.urlopen(f"{self.app}/api/exams/{created['exam_id']}?owner=ABC") as r:
