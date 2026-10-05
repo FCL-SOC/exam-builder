@@ -261,7 +261,7 @@ class UpdateSection(BaseModel):
 
 class UpdateDetails(BaseModel):
     """Change cover details: unit, subject, assessment_type, year_level, semester, year, reading_min, writing_min,
-    calculator, task, instructions, learning_area, no_write, show_teacher."""
+    calculator, task, instructions, learning_area, no_write, show_teacher, class_code."""
     op: Literal["update_details"]
     changes: dict[str, Any]
 

@@ -85,8 +85,15 @@
         "SAC",
         "Quiz",
         "Assignment",
-        "Practice exam"
-      ]
+        "Practice exam",
+        "Worksheet"
+      ],
+      "description": "Worksheet prints no cover page and no 'do not write' strip: a header with the class details on page 1 instead."
+    },
+    "class_code": {
+      "type": "string",
+      "maxLength": 20,
+      "description": "Worksheets: the class, e.g. '10MM1', printed in the header."
     },
     "year_level": {
       "enum": [

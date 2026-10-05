@@ -170,6 +170,14 @@
   .al-c > .ans { justify-content: center; }
   .al-r > .ans { justify-content: flex-end; }
   .end { text-align: center; font-weight: 700; margin-top: 8mm; }
+  /* A worksheet has no cover: a header on page 1 instead. */
+  .ws-head { margin: 0 0 6mm; }
+  .ws-top { display: flex; align-items: center; gap: 3mm; font-weight: 700; font-size: 13pt; }
+  .ws-top .logo { height: 12mm; }
+  .ws-title { font-size: 16pt; font-weight: 700; margin: 2mm 0 3mm; }
+  .ws-details { width: 100%; border-collapse: separate; border-spacing: 0; }
+  .ws-details th { text-align: left; font-weight: 700; padding: 0 2mm 0 0; width: 1%; white-space: nowrap; }
+  .ws-details td { border-bottom: 1px solid #000; height: 8mm; padding: 0 4mm 0 1mm; }
   .sec-head:has(.desc:not(.ed):empty) .sep { display: none; }  /* read-only view */
   /* The questions sheet is split into A4 pages on screen (see paginate()); print breaks at the same places. */
   .pgap { display: block; position: relative; }
@@ -283,7 +291,6 @@
   /* A4. The cover keeps the docx margins and no footer; other pages print "Page X of Y". */
   @page { size: A4; margin: 15mm 15mm 16mm;
     @bottom-center { content: "Page " counter(page) " of " counter(pages); font: 9pt Arial, sans-serif; } }
-  @page :first { margin: 12.5mm 25.4mm 5mm; @bottom-center { content: none; } }
   @media print {
     html, body, #app { height: auto; display: block; background: #fff; }
     #topbar, #toolbar, #home { display: none !important; }
@@ -303,6 +310,10 @@
     .pgap .band { display: none; }  /* the grey gap between pages is screen-only */
     .dnwa { display: none !important; }  /* print uses the @page margin boxes instead */
   }
+</style>
+<!-- The cover's own margins and no footer. paginate() switches it off for a worksheet, whose page 1 is a normal page. -->
+<style id="coverpage" media="print">
+  @page :first { margin: 12.5mm 25.4mm 5mm; @bottom-center { content: none; } }
 </style>
 <!-- The printed "do not write in this area" strip. A page margin box is the only thing Chrome repeats per page
      AND lets us alternate: a left-hand page carries it on its right edge and vice versa, so it always falls by
@@ -344,6 +355,7 @@
         <span class="grow"></span>
         <button id="plans-btn" onclick="location.href='plans.html' + location.search">Lesson plans</button>
         <button id="import-btn">Import from a sheet</button>
+        <button id="new-ws-btn">+ New worksheet</button>
         <button id="new-btn" class="primary">+ New exam</button>
       </div>
       <div id="import-box" hidden>
@@ -386,7 +398,7 @@
       <select id="s-year"><option value="">—</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option></select>
     </label>
     <label>Assessment
-      <select id="s-type"><option>Exam</option><option>Test</option><option>CAT</option><option>SAC</option><option>Quiz</option><option>Assignment</option><option>Practice exam</option></select>
+      <select id="s-type"><option>Exam</option><option>Test</option><option>CAT</option><option>SAC</option><option>Quiz</option><option>Assignment</option><option>Practice exam</option><option>Worksheet</option></select>
     </label>
     <label>Topic / unit <input id="s-topic" placeholder="e.g. Probability, or Unit 3 AoS 1"></label>
     <label>Subject <input id="s-subject" list="subjects" placeholder="e.g. Business Management"></label>
@@ -587,8 +599,9 @@ const defaults = () => ({
   learning_area: "", subject: "", unit: "", task: settings.default_task, semester: "1",
   year: String(new Date().getFullYear()), reading_min: 10, writing_min: 60, calculator: "none",
   instructions: settings.instructions, show_teacher: false, shared: false, no_write: true, sections: [newSection("A")],
-  assessment_type: "Exam", year_level: "",
+  assessment_type: "Exam", year_level: "", class_code: "",
 });
+const isWorksheet = ex => ex?.assessment_type === "Worksheet";
 const examTitle = ex => [ex.unit, ex.subject, "·", ex.task, `S${ex.semester} ${ex.year}`]
   .filter(Boolean).join(" ").replace(/^· /, "") || "Untitled exam";
 
@@ -822,7 +835,7 @@ async function renderHome() {
   $("#tab-mine").classList.toggle("on", tab === "mine");
   $("#tab-shelf").classList.toggle("on", tab === "shelf");
   $("#shelf-area").hidden = tab !== "shelf";
-  $("#new-btn").disabled = !code;
+  $("#new-btn").disabled = $("#new-ws-btn").disabled = !code;
   const box = $("#home-list");
   box.replaceChildren();
   if (!code) {
@@ -881,8 +894,9 @@ function fillSubjects(extra) {
   $("#subjects").replaceChildren(...all.map(s => h("option", { value: s })));
 }
 
-async function newExam() {
+async function newExam(worksheet = false) {
   uid = newUid(); exam = defaults(); examOwner = code; readOnly = false;
+  if (worksheet) Object.assign(exam, { assessment_type: "Worksheet", task: "Worksheet", no_write: false });
   version = null; baseJson = JSON.stringify(exam);
   openEditor();
   scheduleSave(false);
@@ -1129,7 +1143,13 @@ function renderPaper() {
   const nQ = ex.sections.reduce((a, s) => a + s.questions.length, 0);
   const sectionName = s => `Section ${s.name}${s.description ? ": " + s.description : ""}`;
 
-  const cover = `<section class="sheet cover">
+  const ws = isWorksheet(ex);
+  const wsHead = `<header class="ws-head">
+    <div class="ws-top">${settings.has_logo ? `<img class="logo" src="${esc(logoUrl())}" alt="">` : ""}<span>${esc(settings.school_name)}</span></div>
+    <div class="ws-title"><span class="unitwrap">${editable("span", "unit", ex, "unit", "plain", "Topic")} </span>${editable("span", "subj", ex, "subject", "plain", "Subject")} · ${editable("span", "", ex, "task", "plain", "Worksheet")}</div>
+    <table class="ws-details"><tr><th>Name</th><td></td><th>Class</th><td>${editable("span", "", ex, "class_code", "plain", "e.g. 10MM1")}</td><th>Date</th><td></td>${ex.show_teacher ? `<th>Teacher</th><td>${esc(examOwner)}</td>` : ""}</tr></table>
+  </header>`;
+  const cover = ws ? "" : `<section class="sheet cover">
     ${ed ? `<div class="hint">Highlighted text can be clicked and edited</div>` : ""}
     <table class="namebox"><tr><th>Name</th><td></td></tr><tr><th>Teacher</th><td>${ex.show_teacher ? esc(examOwner) : ""}</td></tr></table>
     <div class="centre">
@@ -1162,14 +1182,14 @@ function renderPaper() {
       ${ed ? `<button class="add" data-act="add-question">+ Question</button>` : ""}
     </div>`).join("");
 
-  const extra = `<section class="sheet extra">
+  const extra = ws ? "" : `<section class="sheet extra">
     <div class="sec-head">Extra space for responses</div>
     <p class="sec-note">Clearly number all responses in this space.</p>
     <div class="lines"><div class="ln">${"<div></div>".repeat(24)}</div></div>
     <p class="end">END OF QUESTION AND ANSWER BOOK</p>
   </section>`;
 
-  const body = `<section class="sheet body"><div class="seclist"${list(ex.sections, "sections", ".h-sec")}>${sections}</div>
+  const body = `<section class="sheet body">${ws ? wsHead : ""}<div class="seclist"${list(ex.sections, "sections", ".h-sec")}>${sections}</div>
     ${ed ? `<button class="add" data-act="add-section">+ Section</button>` : ""}</section>`;
 
   // Rebuilding empties the paper for a moment, which can clamp the scroll just as paginate() can.
@@ -1851,7 +1871,8 @@ let filterTimer = null;
 $("#home-filter").oninput = () => { clearTimeout(filterTimer); filterTimer = setTimeout(renderHome, 200); };
 $("#tab-mine").onclick = () => { tab = "mine"; renderHome(); };
 $("#tab-shelf").onclick = () => { tab = "shelf"; renderHome(); };
-$("#new-btn").onclick = newExam;
+$("#new-btn").onclick = () => newExam();
+$("#new-ws-btn").onclick = () => newExam(true);
 
 // Import: the server turns a sheet into exam JSON, then it is saved like any other new exam.
 // Everything in the sheet is content, so it goes through the same editor the teacher already knows.
@@ -1987,7 +2008,7 @@ function paginate() {
   breaks.forEach((b, n) => {
     const gap = h("div", { class: b.forced ? "pgap" : "pgap brk" });
     gap.style.height = px(Math.max(0, b.pageStart + pageH - b.y) + 31 * mm + GAP);
-    const band = h("div", { class: "band" }, h("span", {}, `Page ${n + 2}`));
+    const band = h("div", { class: "band" }, h("span", {}, `Page ${n + (isWorksheet(exam) ? 1 : 2)}`));
     gap.append(band);
     b.el.before(gap);
     const g = gap.getBoundingClientRect();
@@ -2001,7 +2022,8 @@ function paginate() {
   // One "do not write in this area" strip per page. The cover is page 1, so the body starts at page 2:
   // even pages carry it on the right, odd pages on the left, which puts it by the spine either way.
   // These are the on-screen preview; printing draws its own from the @page margin boxes.
-  const on = exam?.no_write !== false;
+  $("#coverpage").media = isWorksheet(exam) ? "not all" : "print";
+  const on = exam?.no_write !== false && !isWorksheet(exam);
   $("#nowrite").media = on ? "print" : "not all";
   if (!on) return;
   const strip = page => h("div", { class: "dnwa" },
