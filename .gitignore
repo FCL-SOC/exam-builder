@@ -7,3 +7,6 @@ py_embed.zip
 
 __pycache__/
 *.pyc
+
+# Claude connector: short links
+connector/data/

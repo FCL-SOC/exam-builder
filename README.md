@@ -52,6 +52,20 @@ New exams pick up these settings; existing exams keep their own copy of the cove
 - **Print / Save as PDF**: choose *Save as PDF*, paper **A4**, margins **Default**, and turn **Headers and footers off**
   (the booklet prints its own page numbers).
 
+## Write exams with Claude
+
+The [Claude connector](connector/README.md) lets teachers ask Claude for an exam ("a 40-mark Year 10 test on
+quadratics") and get back a link that opens it here, ready to edit and print. Claude writes it in the teacher's own
+Claude account; the connector checks it against the editor's rules and makes the link. It runs separately from
+this app and needs hosting; this app itself still needs no internet connection and no packages.
+
+The exam format is documented in [docs/exam-format.md](docs/exam-format.md) and
+[schema/exam.schema.json](schema/exam.schema.json), with a full example in
+[examples/sample_exam.json](examples/sample_exam.json). Any tool can open an exam in the editor with a
+`#data=` link.
+
+In text, write money as `\$12.50`: a bare `$` starts maths.
+
 ## Your data
 
 | Path | What it is |
@@ -78,6 +92,8 @@ python3 -m unittest discover tests
 - `static/index.html`: the whole app (editor, cover sheet, graphs, print layout)
 - `static/demo.js`: the live demo. With no server behind the page (GitHub Pages, a local file, or `?demo`) it answers the app's requests from memory; on the real server it does nothing
 - `.github/workflows/pages.yml`: publishes `static/` as the live demo on every push
+- `connector/`: the Claude connector (MCP server; needs `connector/requirements.txt`). `python -m unittest discover connector/tests`
+- `.github/workflows/connector.yml`: tests the connector, and opens a `#data=` link in Chromium on the demo and the real server
 - `static/mathlive/` and `static/Sortable.min.js`: bundled copies of [MathLive](https://github.com/arnog/mathlive) (MIT) and [SortableJS](https://github.com/SortableJS/Sortable) (MIT), so it works offline
 
 ## Licence

@@ -484,8 +484,9 @@ function setStatus(text, error = false) {
 function tex(latex) {
   try { return MathLive.convertLatexToMarkup(latex); } catch { return esc(latex); }
 }
-// Plain text with $...$ inline maths.
-const richText = s => String(s || "").split(/\$([^$]+)\$/).map((p, i) => i % 2 ? tex(p) : esc(p).replace(/\n/g, "<br>")).join("");
+// Plain text with $...$ inline maths. \$ is a literal dollar sign (money), in text or inside maths.
+const richText = s => String(s || "").replace(/\\\$/g, "\u0000").split(/\$([^$]+)\$/)
+  .map((p, i) => i % 2 ? tex(p.replace(/\u0000/g, "\\$")) : esc(p).replace(/\u0000/g, "$").replace(/\n/g, "<br>")).join("");
 
 // ---------------------------------------------------------------- marks
 const isLeaf = n => !n.parts || n.parts.length === 0;
@@ -587,7 +588,8 @@ let homeRequest = 0;  // a slow list response must not overwrite a newer one (e.
 async function renderHome() {
   const request = ++homeRequest;
   show("home");
-  history.replaceState(null, "", location.pathname + location.search);  // keep ?demo
+  // keep ?demo, and a #data= link still waiting for a staff code (so a reload doesn't lose it)
+  history.replaceState(null, "", location.pathname + location.search + (pendingImport ? location.hash : ""));
   $("#tab-mine").classList.toggle("on", tab === "mine");
   $("#tab-shelf").classList.toggle("on", tab === "shelf");
   $("#shelf-area").hidden = tab !== "shelf";
@@ -595,7 +597,9 @@ async function renderHome() {
   const box = $("#home-list");
   box.replaceChildren();
   if (!code) {
-    box.append(h("p", { class: "note" }, "Enter your three-letter staff code (for example ABC) in the top bar to see your exams."));
+    box.append(h("p", { class: pendingImport ? "" : "note" }, pendingImport
+      ? "Enter your three-letter staff code (for example ABC) in the top bar to open the exam from your link."
+      : "Enter your three-letter staff code (for example ABC) in the top bar to see your exams."));
     return;
   }
   let rows;
@@ -677,6 +681,56 @@ async function duplicate(id) {
   } catch (e) {
     alert(`Could not duplicate: ${e.message}`);
   }
+}
+
+// ---------------------------------------------------------------- exams arriving in a link
+// #data=… holds a whole exam (from the Claude connector, or anything that follows docs/exam-format.md):
+// compact JSON, raw DEFLATE, base64url. It opens as a new exam under the teacher's code. The fragment never
+// leaves the browser, so the exam isn't sent to whoever hosts this page.
+let pendingImport = null;  // decoded, waiting for a staff code
+
+async function decodeExamLink(packed) {
+  const b64 = packed.replace(/-/g, "+").replace(/_/g, "/");
+  const bytes = Uint8Array.from(atob(b64 + "=".repeat(-b64.length & 3)), c => c.charCodeAt(0));
+  const text = await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).text();
+  const value = JSON.parse(text);
+  if (!value || typeof value !== "object" || !Array.isArray(value.sections) || !value.sections.length) {
+    throw new Error("it doesn't contain an exam");
+  }
+  return value;
+}
+
+// Fill in everything the drawing code relies on, so an exam written outside the editor can't break the page.
+function tidyImported(ex) {
+  const KNOWN = new Set(["text", "equation", "image", "lines", "box", "graph", "table", "answer", "choices"]);
+  const list = v => Array.isArray(v) ? v : [];
+  const tidyBlock = b => {
+    if (!b || typeof b !== "object" || !KNOWN.has(b.type)) return null;
+    if (b.type === "graph") {
+      const d = newGraph();
+      return { ...d, ...b, x: { ...d.x, ...b.x }, y: { ...d.y, ...b.y }, functions: list(b.functions), points: list(b.points) };
+    }
+    if (b.type === "table") {
+      const rows = list(b.rows).map(r => list(r).map(c => String(c ?? "")));
+      return { ...b, rows: rows.length && rows[0].length ? rows : [[""]] };
+    }
+    if (b.type === "answer") return { ...b, boxes: list(b.boxes).length ? b.boxes : [{ label: "", units: "" }] };
+    if (b.type === "choices") {
+      return { ...b, options: list(b.options).map(o => typeof o === "string" ? o : tidyBlock(o) ?? ""),
+               correct: Number.isInteger(b.correct) ? b.correct : null };
+    }
+    return b;
+  };
+  const tidyItem = (it, depth) => ({ ...it, blocks: list(it?.blocks).map(tidyBlock).filter(Boolean),
+    parts: depth < 2 ? list(it?.parts).map(p => tidyItem(p, depth + 1)) : [] });
+  return { ...defaults(), ...ex, shared: false,
+    sections: ex.sections.map(s => ({ ...newSection("A"), ...s, questions: list(s.questions).map(q => tidyItem(q, 0)) })) };
+}
+
+function importExam(imported) {
+  uid = newUid(); exam = tidyImported(imported); examOwner = code; readOnly = false;
+  openEditor();  // swaps #data=… for #exam=uid, so a reload opens the saved copy rather than importing again
+  scheduleSave(false);
 }
 
 async function deleteExam(r) {
@@ -1537,6 +1591,11 @@ $("#code").addEventListener("input", e => {
   if (c === code) return;
   code = c;
   try { c ? localStorage.setItem("staffCode", c) : localStorage.removeItem("staffCode"); } catch {}
+  if (code && pendingImport) {
+    const imported = pendingImport;
+    pendingImport = null;
+    return importExam(imported);
+  }
   renderHome();
 });
 
@@ -1872,7 +1931,20 @@ try { code = normalise(localStorage.getItem("staffCode")); } catch {}
 $("#code").value = code;
 fillSubjects([]);
 const fromHash = location.hash.match(/^#exam=([a-z0-9-]+)$/);
-loadSettings().then(() => { if (fromHash && code) openExam(fromHash[1]); else renderHome(); });
+const fromLink = location.hash.match(/^#data=([A-Za-z0-9_-]+)$/);
+loadSettings().then(async () => {
+  if (fromLink) {
+    try { pendingImport = await decodeExamLink(fromLink[1]); }
+    catch (e) { alert(`This exam link could not be opened (${e.message}). It may have been cut short when it was copied.`); }
+    if (pendingImport && code) {
+      const imported = pendingImport;
+      pendingImport = null;
+      return importExam(imported);
+    }
+    return renderHome();
+  }
+  if (fromHash && code) openExam(fromHash[1]); else renderHome();
+});
 </script>
 </body>
 </html>
