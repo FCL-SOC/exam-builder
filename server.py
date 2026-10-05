@@ -315,8 +315,14 @@ Additional space is available at the end of the book if you need extra paper to 
 
 # How questions are written (command terms, marks, wording): Claude follows it. Schools can rewrite it in School
 # settings; until they do, the guide that ships with the app is used, so improvements to it reach every school.
-_STYLE_GUIDE_FILE = ROOT / "docs" / "question-style-guide.md"
-DEFAULT_STYLE_GUIDE = _STYLE_GUIDE_FILE.read_text(encoding="utf-8") if _STYLE_GUIDE_FILE.exists() else ""
+# The lesson plan guide works the same way.
+def _guide(name):
+    path = ROOT / "docs" / name
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+DEFAULT_STYLE_GUIDE = _guide("question-style-guide.md")
+DEFAULT_PLAN_GUIDE = _guide("lesson-plan-guide.md")
 
 DEFAULT_SETTINGS = {
     "school_name": "Your School",
@@ -331,11 +337,14 @@ DEFAULT_SETTINGS = {
     "theme_colour": "#8B0000",
     "accent_colour": "#B8860B",
     "style_guide": DEFAULT_STYLE_GUIDE,
+    "plan_guide": DEFAULT_PLAN_GUIDE,
 }
+_GUIDES = ("style_guide", "plan_guide")
 FONTS = ("Calibri, Carlito, Arial, sans-serif", "Arial, Helvetica, sans-serif", "'Segoe UI', Arial, sans-serif",
          "'Times New Roman', Times, serif", "Georgia, serif", "Verdana, sans-serif")
 _NUMBER_LIMITS = {"body_size": (8, 16), "school_name_size": (16, 48), "title_size": (14, 40), "line_spacing": (6, 14)}
-_TEXT_LIMITS = {"school_name": 120, "default_task": 120, "instructions": 5000, "notice": 1000, "style_guide": 30000}
+_TEXT_LIMITS = {"school_name": 120, "default_task": 120, "instructions": 5000, "notice": 1000, "style_guide": 30000,
+                "plan_guide": 30000}
 _COLOUR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 # Logos are checked by their first bytes, not just the declared type. SVG is refused: it can carry scripts.
 LOGO_TYPES = {"image/png": (".png", b"\x89PNG\r\n\x1a\n"), "image/jpeg": (".jpg", b"\xff\xd8\xff"), "image/webp": (".webp", b"RIFF")}
@@ -438,9 +447,10 @@ class SchoolSettings:
         with self._lock:
             data = self._read()
             data.update(clean)
-            # The built-in question guide (or an empty box) isn't stored, so the school keeps getting the latest one.
-            if "style_guide" in clean and clean["style_guide"].strip() in ("", DEFAULT_STYLE_GUIDE.strip()):
-                data.pop("style_guide", None)
+            # A built-in guide (or an empty box) isn't stored, so the school keeps getting the latest one.
+            for key in _GUIDES:
+                if key in clean and clean[key].strip() in ("", DEFAULT_SETTINGS[key].strip()):
+                    data.pop(key, None)
             self._write(data)
         return self.public()
 

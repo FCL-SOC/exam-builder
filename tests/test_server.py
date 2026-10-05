@@ -156,21 +156,24 @@ class StyleGuideTests(unittest.TestCase):
 
     def test_built_in_guide_until_the_school_writes_its_own(self):
         self.assertIn("Command terms", server.DEFAULT_STYLE_GUIDE)
-        self.assertEqual(self.settings.public()["style_guide"], server.DEFAULT_STYLE_GUIDE)
-        self.assertEqual(self.settings.update({"style_guide": "Our way."})["style_guide"], "Our way.")
-        stored = json.loads((Path(self.tmp.name) / "settings.json").read_text())
-        self.assertEqual(stored["style_guide"], "Our way.")
+        self.assertIn("Learning Intentions", server.DEFAULT_PLAN_GUIDE)
+        for key in ("style_guide", "plan_guide"):
+            self.assertEqual(self.settings.public()[key], server.DEFAULT_SETTINGS[key])
+            self.assertEqual(self.settings.update({key: "Our way."})[key], "Our way.")
+            stored = json.loads((Path(self.tmp.name) / "settings.json").read_text())
+            self.assertEqual(stored[key], "Our way.")
 
     def test_empty_or_unchanged_guide_isnt_stored(self):
-        """So the school keeps getting improvements to the built-in guide."""
-        self.settings.update({"style_guide": "Our way."})
-        for value in ("", "   ", server.DEFAULT_STYLE_GUIDE):
-            self.settings.update({"style_guide": value, "school_name": "Hillview"})
-            stored = json.loads((Path(self.tmp.name) / "settings.json").read_text())
-            self.assertNotIn("style_guide", stored)
-            self.assertEqual(self.settings.public()["style_guide"], server.DEFAULT_STYLE_GUIDE)
-        with self.assertRaises(ValueError):
-            self.settings.update({"style_guide": "x" * 30001})
+        """So the school keeps getting improvements to the built-in guides."""
+        for key in ("style_guide", "plan_guide"):
+            self.settings.update({key: "Our way."})
+            for value in ("", "   ", server.DEFAULT_SETTINGS[key]):
+                self.settings.update({key: value, "school_name": "Hillview"})
+                stored = json.loads((Path(self.tmp.name) / "settings.json").read_text())
+                self.assertNotIn(key, stored)
+                self.assertEqual(self.settings.public()[key], server.DEFAULT_SETTINGS[key])
+            with self.assertRaises(ValueError):
+                self.settings.update({key: "x" * 30001})
 
 
 class ClaudeExtensionTests(unittest.TestCase):
