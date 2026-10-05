@@ -13,6 +13,9 @@ It works at school, in the Claude app on your computer.
 4. **Open the downloaded file.** The Claude app shows an install screen with your staff code already filled in.
    Click **Install**. If it says the extension isn't verified, that's expected: it's the school's own.
 
+   **Nothing happens, or Windows asks which app to use?** In the Claude app go to **Settings → Extensions →
+   Advanced settings → Install Extension…** and choose `exam-assistant.mcpb` from your Downloads folder.
+
 ## Use it
 
 Put Claude on one side of your screen and Exam Assistant on the other. Then ask in your own words, for example:
