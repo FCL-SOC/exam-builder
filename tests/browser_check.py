@@ -87,12 +87,13 @@ def mixed_exam(sample: dict, seed: int = 2) -> dict:
     return {**{k: v for k, v in sample.items() if k != "sections"}, "sections": sections}
 
 
-def print_matches_preview(page, url: str) -> str | None:
+def print_matches_preview(browser, url: str) -> str | None:
     """Open an exam and print it: Chrome must break pages exactly where the preview shows them (no blank pages,
     nothing pushed on). None if it does, else what differs."""
-    page = page.context.new_page()  # a new tab (same staff code): a new #data= in the old one is only a hash change
+    page = browser.new_page()  # a new #data= in the old tab would only be a hash change, not a fresh load
     try:
         page.goto(url)
+        page.fill("#code", "ABC")
         page.wait_for_selector("#editor-view:not([hidden]) .qhead")
         page.wait_for_timeout(3000)  # maths, pictures and the 250 ms repaginate settle
         shown = page.locator("#paper .band").count() + 3  # the cover, the pages the preview draws, the extra page
@@ -166,7 +167,7 @@ def main() -> int:
                 mixed_result = exam_format.validate(mixed)
                 assert mixed_result["ok"], mixed_result["errors"]
                 mixed_packed = exam_format.pack(exam_format.normalise(mixed, mixed_result["total_marks"]))
-                problem = print_matches_preview(page, url.split("#")[0] + "#data=" + mixed_packed)
+                problem = print_matches_preview(browser, url.split("#")[0] + "#data=" + mixed_packed)
                 print(f"mixed exam {seed}: {problem or 'prints as previewed'}")
                 if problem:
                     failures.append(f"mixed exam {seed}: {problem}")
