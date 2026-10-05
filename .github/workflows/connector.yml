@@ -1,0 +1,38 @@
+# Tests the Claude connector and the editor's #data= import on every push and pull request.
+name: Connector
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4   # the expression-parser parity test runs the editor's own JavaScript
+        with:
+          node-version: "22"
+      - run: pip install -r connector/requirements.txt
+      - name: App tests (standard library)
+        run: python -m unittest discover tests
+      - name: Connector tests
+        run: python -m unittest discover connector/tests
+      - name: In a real browser - links open (demo and school server), live updates and merging
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+          python tests/browser_check.py
+          python tests/browser_check.py --server
+          python tests/live_check.py
+          python tests/school_check.py
+      - name: Docker image builds
+        run: docker build -f connector/Dockerfile -t exam-connector .

@@ -52,6 +52,27 @@ New exams pick up these settings; existing exams keep their own copy of the cove
 - **Print / Save as PDF**: choose *Save as PDF*, paper **A4**, margins **Default**, and turn **Headers and footers off**
   (the booklet prints its own page numbers).
 
+## Write exams with Claude
+
+Teachers can ask Claude to write a whole exam or change a single question, and watch the changes appear in their
+open editor. Run `setup-connector.bat` once on the server; teachers then install the Claude Desktop extension from the
+**Use with Claude** button. See the
+[teacher guide](connector/TEACHERS.md) and the [connector setup](connector/README.md). The connector is optional:
+without it, Exam Assistant still needs no packages and no internet connection.
+
+Claude follows the school's question style guide (command terms, marks, answer space, multiple choice), which
+admins can change in School settings.
+
+Any exam open in the editor also updates live when it's changed somewhere else (Claude, or another tab) and merges
+with your own edits instead of overwriting them.
+
+The exam format is documented in [docs/exam-format.md](docs/exam-format.md) and
+[schema/exam.schema.json](schema/exam.schema.json), with a full example in
+[examples/sample_exam.json](examples/sample_exam.json). Any tool can open an exam in the editor with a
+`#data=` link.
+
+In text, write money as `\$12.50`: a bare `$` starts maths.
+
 ## Your data
 
 | Path | What it is |
@@ -78,6 +99,9 @@ python3 -m unittest discover tests
 - `static/index.html`: the whole app (editor, cover sheet, graphs, print layout)
 - `static/demo.js`: the live demo. With no server behind the page (GitHub Pages, a local file, or `?demo`) it answers the app's requests from memory; on the real server it does nothing
 - `.github/workflows/pages.yml`: publishes `static/` as the live demo on every push
+- `connector/`: the Claude connector (MCP server; needs `connector/requirements.txt`), and its Claude Desktop extension in `connector/desktop-extension/`. `python -m unittest discover connector/tests`
+- `setup-connector.bat`: installs the connector's packages into the portable Python; `start.bat` then starts it too
+- `.github/workflows/connector.yml`: tests the connector, and in Chromium: `#data=` links, live updates and merging, and school mode end to end
 - `static/mathlive/` and `static/Sortable.min.js`: bundled copies of [MathLive](https://github.com/arnog/mathlive) (MIT) and [SortableJS](https://github.com/SortableJS/Sortable) (MIT), so it works offline
 
 ## Licence

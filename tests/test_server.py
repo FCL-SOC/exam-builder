@@ -1,12 +1,17 @@
 """Run: python -m unittest discover tests   (standard library only)"""
 
 import json
+import socket
+import sqlite3
 import sys
 import tempfile
 import threading
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -81,6 +86,118 @@ class StoreTests(unittest.TestCase):
         for _ in range(3):
             server.backup_on_startup(self.store, bdir, keep=2)
         self.assertEqual(len(list(bdir.glob("exams-*.db"))), 2)
+
+    def test_save_from_an_old_version_is_refused(self):
+        v1 = self.store.save("ABC", "exam-0001", {"title": "v1"})
+        v2 = self.store.save("ABC", "exam-0001", {"title": "v2"}, base=v1, by="claude")
+        self.assertGreater(v2, v1)
+        with self.assertRaises(server.Conflict) as caught:
+            self.store.save("ABC", "exam-0001", {"title": "stale"}, base=v1)
+        self.assertEqual((caught.exception.updated_at, caught.exception.updated_by), (v2, "claude"))
+        self.assertEqual(self.store.get("ABC", "exam-0001")["exam"]["title"], "v2")
+        self.assertTrue(self.store.save("ABC", "exam-0001", {"title": "forced"}))  # no base: overwrite, as before
+        self.assertTrue(self.store.save("ABC", "exam-0002", {"title": "new"}, base="anything"))  # nothing to clash with
+
+    def test_version(self):
+        stamp = self.store.save("ABC", "exam-0001", {"title": "x"}, by="claude")
+        self.assertEqual(self.store.version("ABC", "exam-0001"), {"updated_at": stamp, "updated_by": "claude"})
+        self.assertIsNone(self.store.version("XYZ", "exam-0001"))
+        self.store.save("ABC", "exam-0001", {"title": "x"})
+        self.assertEqual(self.store.version("ABC", "exam-0001")["updated_by"], "")
+        self.assertEqual(self.store.list_for("ABC")[0]["updated_by"], "")
+
+    def test_database_from_before_updated_by_is_migrated(self):
+        old = self.dir / "old.db"
+        conn = sqlite3.connect(old)
+        conn.executescript(server.SCHEMA)
+        conn.execute("INSERT INTO exams (exam_uid, owner, title, created_at, updated_at, body) "
+                     "VALUES ('exam-0001', 'ABC', 'T', 't', 't', '{}')")
+        conn.commit()
+        conn.close()
+        store = server.ExamStore(old)
+        self.assertEqual(store.version("ABC", "exam-0001"), {"updated_at": "t", "updated_by": ""})
+        store._conn.close()
+        server.ExamStore(old)._conn.close()  # opening it again doesn't try to add the column twice
+
+
+class FakeConnector:
+    """Something answering /healthz like the Claude connector does."""
+
+    def __enter__(self):
+        class Healthy(server.SimpleHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+        self.httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), Healthy)
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        return self.httpd.server_address[1]
+
+    def __exit__(self, *exc):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class StyleGuideTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.settings = server.SchoolSettings(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_built_in_guide_until_the_school_writes_its_own(self):
+        self.assertIn("Command terms", server.DEFAULT_STYLE_GUIDE)
+        self.assertEqual(self.settings.public()["style_guide"], server.DEFAULT_STYLE_GUIDE)
+        self.assertEqual(self.settings.update({"style_guide": "Our way."})["style_guide"], "Our way.")
+        stored = json.loads((Path(self.tmp.name) / "settings.json").read_text())
+        self.assertEqual(stored["style_guide"], "Our way.")
+
+    def test_empty_or_unchanged_guide_isnt_stored(self):
+        """So the school keeps getting improvements to the built-in guide."""
+        self.settings.update({"style_guide": "Our way."})
+        for value in ("", "   ", server.DEFAULT_STYLE_GUIDE):
+            self.settings.update({"style_guide": value, "school_name": "Hillview"})
+            stored = json.loads((Path(self.tmp.name) / "settings.json").read_text())
+            self.assertNotIn("style_guide", stored)
+            self.assertEqual(self.settings.public()["style_guide"], server.DEFAULT_STYLE_GUIDE)
+        with self.assertRaises(ValueError):
+            self.settings.update({"style_guide": "x" * 30001})
+
+
+class ClaudeExtensionTests(unittest.TestCase):
+    def test_available_only_while_the_connector_runs(self):
+        self.assertFalse(server.ClaudeExtension(port=free_port()).available())
+        with FakeConnector() as port:
+            self.assertTrue(server.ClaudeExtension(port=port).available())
+        self.assertFalse(server.ClaudeExtension(folder=Path(tempfile.mkdtemp()), port=port).available())
+
+    def test_bundle_is_filled_in_for_the_teacher(self):
+        ext = server.ClaudeExtension(port=7901)
+        with zipfile.ZipFile(BytesIO(ext.build("ABC", "8801-openai-01:7900"))) as bundle:
+            self.assertEqual(sorted(bundle.namelist()), ["icon.png", "manifest.json", "server/index.js"])
+            manifest = json.loads(bundle.read("manifest.json"))
+            self.assertEqual(bundle.read("server/index.js"), (server.EXTENSION_DIR / "server" / "index.js").read_bytes())
+        config = manifest["user_config"]
+        self.assertEqual((config["staff_code"]["default"], config["server_url"]["default"]),
+                         ("ABC", "http://8801-openai-01:7901"))
+        self.assertEqual(manifest["server"], json.loads((server.EXTENSION_DIR / "manifest.json").read_text())["server"])
+
+    def test_odd_host_headers_fall_back_to_this_computers_name(self):
+        ext = server.ClaudeExtension(port=7901)
+        for host, expect in (("10.1.2.3:7900", "http://10.1.2.3:7901"), ("[::1]:7900", "http://[::1]:7901"),
+                             ('x"><script>', f"http://{socket.gethostname()}:7901"), (None, f"http://{socket.gethostname()}:7901")):
+            with zipfile.ZipFile(BytesIO(ext.build("ABC", host))) as bundle:
+                url = json.loads(bundle.read("manifest.json"))["user_config"]["server_url"]["default"]
+            self.assertEqual(url, expect, host)
 
 
 class SettingsTests(unittest.TestCase):
@@ -185,6 +302,36 @@ class HttpTests(unittest.TestCase):
     def test_bad_uid_and_body_rejected(self):
         self.assertEqual(self.call("PUT", "/api/exams/..%2Fescape?owner=ABC", {"a": 1})[0], 400)
         self.assertEqual(self.call("PUT", "/api/exams/exam-0001?owner=ABC", [1, 2])[0], 400)
+
+    def test_saves_carry_versions(self):
+        status, first = self.call("PUT", "/api/exams/exam-0001?owner=ABC", {"title": "v1"})
+        self.assertEqual(status, 200)
+        v1 = urllib.parse.quote(first["updated_at"])
+        status, second = self.call("PUT", f"/api/exams/exam-0001?owner=ABC&base={v1}&by=claude", {"title": "v2"})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.call("GET", "/api/exams/exam-0001/version?owner=ABC"),
+                         (200, {"updated_at": second["updated_at"], "updated_by": "claude"}))
+        status, clash = self.call("PUT", f"/api/exams/exam-0001?owner=ABC&base={v1}", {"title": "stale"})
+        self.assertEqual((status, clash["updated_at"], clash["updated_by"]), (409, second["updated_at"], "claude"))
+        self.assertEqual(self.call("GET", "/api/exams/exam-0001?owner=ABC")[1]["exam"]["title"], "v2")
+        self.assertEqual(self.call("GET", "/api/exams/exam-0001/version?owner=XYZ")[0], 404)
+        self.assertEqual(self.call("PUT", "/api/exams/exam-0001?owner=ABC&by=Robot!", {"title": "x"})[0], 400)
+
+    def test_claude_extension_download(self):
+        server.Handler.claude = server.ClaudeExtension(port=free_port())
+        self.assertEqual(self.call("GET", "/claude/status"), (200, {"available": False}))
+        self.assertEqual(self.call("GET", "/claude/exam-assistant.mcpb?owner=ABC")[0], 404)
+        with FakeConnector() as port:
+            server.Handler.claude = server.ClaudeExtension(port=port)
+            self.assertEqual(self.call("GET", "/claude/status"), (200, {"available": True}))
+            self.assertEqual(self.call("GET", "/claude/exam-assistant.mcpb?owner=a1")[0], 400)
+            req = urllib.request.Request(self.base + "/claude/exam-assistant.mcpb?owner=xyz", headers={"Host": "examserver:7900"})
+            with urllib.request.urlopen(req) as r:
+                self.assertIn("exam-assistant.mcpb", r.headers["Content-Disposition"])
+                manifest = json.loads(zipfile.ZipFile(BytesIO(r.read())).read("manifest.json"))
+        self.assertEqual(manifest["user_config"]["staff_code"]["default"], "XYZ")
+        self.assertEqual(manifest["user_config"]["server_url"]["default"], f"http://examserver:{port}")
+        server.Handler.claude = server.ClaudeExtension()
 
     def test_serves_frontend(self):
         with urllib.request.urlopen(self.base + "/") as r:

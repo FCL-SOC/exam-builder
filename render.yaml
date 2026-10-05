@@ -1,0 +1,31 @@
+# Render Blueprint for the Claude connector (connector/). Render builds and redeploys it from GitHub on every
+# push that touches the connector or the exam format. See connector/README.md.
+services:
+  - type: web
+    name: exam-assistant-connector
+    runtime: docker
+    dockerfilePath: ./connector/Dockerfile
+    dockerContext: .
+    plan: starter            # a persistent disk needs a paid plan; free instances lose every link when they sleep
+    healthCheckPath: /healthz
+    autoDeploy: true
+    buildFilter:
+      paths:
+        - connector/**
+        - schema/**
+        - examples/**
+        - docs/exam-format.md
+        - docs/question-style-guide.md
+    envVars:
+      - key: PUBLIC_URL      # this service's https://… address, e.g. https://exam-assistant-connector.onrender.com
+        sync: false
+      - key: SCHOOL_URL      # optional: your school's Exam Assistant, e.g. http://examserver:7900/
+        sync: false
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DATA_DIR
+        value: /data
+    disk:
+      name: links
+      mountPath: /data
+      sizeGB: 1

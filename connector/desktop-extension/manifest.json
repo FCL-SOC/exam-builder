@@ -1,0 +1,90 @@
+{
+  "manifest_version": "0.2",
+  "name": "exam-assistant",
+  "display_name": "Exam Assistant",
+  "version": "1.0.0",
+  "description": "Write and edit exams, tests and SACs in your school's Exam Assistant, and watch them change live.",
+  "long_description": "Ask Claude to write an exam, add or rewrite questions, or change marks, and the changes appear in Exam Assistant in your browser within a couple of seconds. Claude works in your own exam library (your staff code), only on the school network. If you and Claude change the same question at once, your version is kept.",
+  "author": {
+    "name": "Exam Assistant",
+    "url": "https://github.com/FCL-SOC/exam-builder"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FCL-SOC/exam-builder"
+  },
+  "homepage": "https://github.com/FCL-SOC/exam-builder",
+  "documentation": "https://github.com/FCL-SOC/exam-builder/blob/main/connector/README.md",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/index.js"
+      ],
+      "env": {
+        "EXAM_CONNECTOR_URL": "${user_config.server_url}",
+        "STAFF_CODE": "${user_config.staff_code}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "get_exam_format",
+      "description": "The exam format and a worked example"
+    },
+    {
+      "name": "list_exams",
+      "description": "Your exams, most recent first"
+    },
+    {
+      "name": "get_exam",
+      "description": "Read an exam: its numbered outline and content"
+    },
+    {
+      "name": "create_exam",
+      "description": "Create a new exam in your library"
+    },
+    {
+      "name": "edit_exam",
+      "description": "Add, rewrite, remove or move questions; change sections and cover details"
+    },
+    {
+      "name": "restore_version",
+      "description": "Undo Claude's last change to an exam"
+    }
+  ],
+  "keywords": [
+    "exam",
+    "assessment",
+    "teacher",
+    "school"
+  ],
+  "license": "MIT",
+  "compatibility": {
+    "platforms": [
+      "win32",
+      "darwin"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  },
+  "user_config": {
+    "staff_code": {
+      "type": "string",
+      "title": "Your staff code",
+      "description": "Already filled in: the three-letter code you use in Exam Assistant. Claude works on your exams.",
+      "required": true
+    },
+    "server_url": {
+      "type": "string",
+      "title": "School server address",
+      "description": "Already filled in. Only change it if IT asks you to.",
+      "default": "http://8801-openai-01:7901",
+      "required": true
+    }
+  }
+}

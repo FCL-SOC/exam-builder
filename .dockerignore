@@ -1,0 +1,7 @@
+data/
+python/
+connector/data/
+.git/
+static/
+tests/
+**/__pycache__/

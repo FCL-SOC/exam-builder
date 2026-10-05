@@ -27,7 +27,10 @@ import sqlite3
 import sys
 import threading
 import time
+import urllib.request
+import zipfile
 from datetime import datetime, timedelta
+from io import BytesIO
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -42,6 +45,12 @@ BACKUP_KEEP = 14
 _OWNER_RE = re.compile(r"^[A-Za-z]{3}$")
 _UID_RE = re.compile(r"^[a-z0-9-]{8,64}$")
 BAD_OWNER = "Enter your three-letter staff code (for example ABC) to use your exams."
+
+# The Claude connector (connector/), when start.bat runs it alongside: Exam Assistant offers teachers its
+# Claude Desktop extension, filled in with their staff code and this server's address.
+CONNECTOR_PORT = int(os.environ.get("CONNECTOR_PORT", "7901"))
+EXTENSION_DIR = ROOT / "connector" / "desktop-extension"
+_HOST_RE = re.compile(r"^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]+)(:\d+)?$")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("exam-assistant")
@@ -64,8 +73,17 @@ CREATE INDEX IF NOT EXISTS idx_exams_shelf ON exams(shared, learning_area);
 # Details shown on the exam lists come straight out of the saved exam JSON (no schema change needed).
 _DETAILS = {"topic": "unit", "assessment_type": "assessment_type", "year_level": "year_level", "task": "task",
             "semester": "semester", "year": "year", "total_marks": "total_marks"}
-_SUMMARY = "exam_uid AS uid, owner, learning_area, subject, title, shared, updated_at, " + ", ".join(
+_SUMMARY = "exam_uid AS uid, owner, learning_area, subject, title, shared, updated_at, updated_by, " + ", ".join(
     f"json_extract(body, '$.{path}') AS {alias}" for alias, path in _DETAILS.items())
+_BY_RE = re.compile(r"^[a-z]{0,20}$")  # who made a save: "" for the editor, "claude" for the connector
+
+
+class Conflict(Exception):
+    """A save based on an older version than the one stored: someone else saved in between."""
+
+    def __init__(self, updated_at, updated_by):
+        super().__init__(updated_at)
+        self.updated_at, self.updated_by = updated_at, updated_by
 
 
 def normalise_owner(raw):
@@ -81,6 +99,10 @@ class ExamStore:
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA)
+        columns = {r["name"] for r in self._conn.execute("PRAGMA table_info(exams)")}
+        if "updated_by" not in columns:  # databases from before the Claude connector
+            self._conn.execute("ALTER TABLE exams ADD COLUMN updated_by TEXT NOT NULL DEFAULT ''")
+            self._conn.commit()
         self._lock = threading.Lock()
         self._last = None
 
@@ -98,29 +120,46 @@ class ExamStore:
         self._last = now
         return now.isoformat(timespec="microseconds")
 
-    def save(self, owner, uid, exam):
-        """Upsert. False if the uid belongs to another teacher — a colliding uid
-        must never silently move an exam between teachers."""
+    def save(self, owner, uid, exam, base=None, by=""):
+        """
+        Upsert; returns the new updated_at. False if the uid belongs to another teacher — a colliding uid
+        must never silently move an exam between teachers.
+
+        `base` is the updated_at the change was made from. If the stored exam has moved on since (another
+        tab, or Claude, saved in between), nothing is written and Conflict is raised, so the caller can merge
+        rather than overwrite. No base means "overwrite", which is how saves worked before.
+        """
         with self._lock:
-            row = self._conn.execute("SELECT owner FROM exams WHERE exam_uid = ?", (uid,)).fetchone()
+            row = self._conn.execute("SELECT owner, updated_at, updated_by FROM exams WHERE exam_uid = ?",
+                                     (uid,)).fetchone()
             if row is not None and row["owner"] != owner:
                 logger.warning("Rejected save: %s does not own exam %s", owner, uid)
                 return False
+            if base and row is not None and row["updated_at"] != base:
+                raise Conflict(row["updated_at"], row["updated_by"])
             now = self._next_timestamp()
             self._conn.execute(
                 """INSERT INTO exams (exam_uid, owner, learning_area, subject, title, shared,
-                                      body, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                      body, created_at, updated_at, updated_by)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(exam_uid) DO UPDATE SET
                      learning_area = excluded.learning_area, subject = excluded.subject,
                      title = excluded.title, shared = excluded.shared,
-                     body = excluded.body, updated_at = excluded.updated_at""",
+                     body = excluded.body, updated_at = excluded.updated_at, updated_by = excluded.updated_by""",
                 (uid, owner, str(exam.get("learning_area") or ""), str(exam.get("subject") or ""),
                  str(exam.get("title") or ""), 1 if exam.get("shared") else 0,
-                 json.dumps(exam), now, now),
+                 json.dumps(exam), now, now, by),
             )
             self._conn.commit()
-            return True
+            return now
+
+    def version(self, owner, uid):
+        """{updated_at, updated_by} of your own or a shared exam, else None. Cheap: the open editor polls it."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT updated_at, updated_by FROM exams WHERE exam_uid = ? AND (owner = ? OR shared = 1)",
+                (uid, owner)).fetchone()
+        return dict(row) if row else None
 
     def get(self, owner, uid):
         """Your own exam, or anyone's shared one. None otherwise, so the API
@@ -173,6 +212,48 @@ class ExamStore:
             dst.close()
 
 
+class ClaudeExtension:
+    """
+    The Claude Desktop extension, personalised per teacher: their staff code and the connector's address are
+    filled in on Claude's install screen, so installing is open-the-file, click Install. Built from the files in
+    connector/desktop-extension/, standard library only.
+    """
+
+    FILES = ("manifest.json", "server/index.js", "icon.png")
+
+    def __init__(self, folder=EXTENSION_DIR, port=CONNECTOR_PORT):
+        self.folder, self.port = Path(folder), port
+        self._checked, self._running = 0.0, False
+
+    def available(self):
+        """Whether the connector is running on this machine (checked at most every 10 s)."""
+        if not all((self.folder / f).exists() for f in self.FILES):
+            return False
+        if time.monotonic() - self._checked > 10:
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/healthz", timeout=1) as r:
+                    self._running = r.status == 200
+            except OSError:
+                self._running = False
+            self._checked = time.monotonic()
+        return self._running
+
+    def build(self, owner, host):
+        """The .mcpb as bytes. `host` is the Host the teacher used to reach this server, so the connector's address
+        is the one that already works from their computer."""
+        match = _HOST_RE.match(host or "")
+        name = match.group(1) if match else socket.gethostname()
+        manifest = json.loads((self.folder / "manifest.json").read_text(encoding="utf-8"))
+        manifest["user_config"]["staff_code"]["default"] = owner
+        manifest["user_config"]["server_url"]["default"] = f"http://{name}:{self.port}"
+        out = BytesIO()
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as bundle:
+            bundle.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
+            for f in self.FILES[1:]:
+                bundle.write(self.folder / f, f)
+        return out.getvalue()
+
+
 def backup_on_startup(store, backup_dir, keep=BACKUP_KEEP):
     """
     Roll a backup of the exam database. Best-effort: a failed backup must never
@@ -221,6 +302,11 @@ Students are NOT permitted to bring into the examination room: blank sheets of p
 Question and answer book.
 Additional space is available at the end of the book if you need extra paper to complete an answer. Clearly label all answers with the appropriate section and question number."""
 
+# How questions are written (command terms, marks, wording): Claude follows it. Schools can rewrite it in School
+# settings; until they do, the guide that ships with the app is used, so improvements to it reach every school.
+_STYLE_GUIDE_FILE = ROOT / "docs" / "question-style-guide.md"
+DEFAULT_STYLE_GUIDE = _STYLE_GUIDE_FILE.read_text(encoding="utf-8") if _STYLE_GUIDE_FILE.exists() else ""
+
 DEFAULT_SETTINGS = {
     "school_name": "Your School",
     "default_task": "Written Examination",
@@ -233,11 +319,12 @@ DEFAULT_SETTINGS = {
     "line_spacing": 9,
     "theme_colour": "#8B0000",
     "accent_colour": "#B8860B",
+    "style_guide": DEFAULT_STYLE_GUIDE,
 }
 FONTS = ("Calibri, Carlito, Arial, sans-serif", "Arial, Helvetica, sans-serif", "'Segoe UI', Arial, sans-serif",
          "'Times New Roman', Times, serif", "Georgia, serif", "Verdana, sans-serif")
 _NUMBER_LIMITS = {"body_size": (8, 16), "school_name_size": (16, 48), "title_size": (14, 40), "line_spacing": (6, 14)}
-_TEXT_LIMITS = {"school_name": 120, "default_task": 120, "instructions": 5000, "notice": 1000}
+_TEXT_LIMITS = {"school_name": 120, "default_task": 120, "instructions": 5000, "notice": 1000, "style_guide": 30000}
 _COLOUR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 # Logos are checked by their first bytes, not just the declared type. SVG is refused: it can carry scripts.
 LOGO_TYPES = {"image/png": (".png", b"\x89PNG\r\n\x1a\n"), "image/jpeg": (".jpg", b"\xff\xd8\xff"), "image/webp": (".webp", b"RIFF")}
@@ -340,6 +427,9 @@ class SchoolSettings:
         with self._lock:
             data = self._read()
             data.update(clean)
+            # The built-in question guide (or an empty box) isn't stored, so the school keeps getting the latest one.
+            if "style_guide" in clean and clean["style_guide"].strip() in ("", DEFAULT_STYLE_GUIDE.strip()):
+                data.pop("style_guide", None)
             self._write(data)
         return self.public()
 
@@ -373,6 +463,7 @@ class SchoolSettings:
 class Handler(SimpleHTTPRequestHandler):
     store = None     # an ExamStore, set by main() or by the tests
     settings = None  # a SchoolSettings, set by main() or by the tests
+    claude = ClaudeExtension()  # the Claude Desktop extension download
 
     # Windows builds this map from the registry, which sometimes has .js as text/plain.
     extensions_map = {
@@ -522,8 +613,31 @@ class Handler(SimpleHTTPRequestHandler):
     def _not_found(self):
         self._json({"error": "Exam not found."}, 404)
 
+    def _claude_route(self):
+        """/claude/status and /claude/exam-assistant.mcpb?owner=ABC; returns False for anything else."""
+        url = urlparse(self.path)
+        if url.path == "/claude/status":
+            self._json({"available": self.claude.available()})
+            return True
+        if url.path == "/claude/exam-assistant.mcpb":
+            owner = normalise_owner(parse_qs(url.query).get("owner", [""])[0])
+            if not owner:
+                self._json({"error": BAD_OWNER}, 400)
+            elif not self.claude.available():
+                self._json({"error": "The Claude connector isn't running on this server."}, 404)
+            else:
+                body = self.claude.build(owner, self.headers.get("Host"))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Disposition", 'attachment; filename="exam-assistant.mcpb"')
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            return True
+        return False
+
     def do_GET(self):
-        if self._settings_route("GET"):
+        if self._settings_route("GET") or self._claude_route():
             return
         api = self._api()
         if api is None:
@@ -539,6 +653,10 @@ class Handler(SimpleHTTPRequestHandler):
             found = self.store.get(owner, parts[1])
             if found:
                 return self._json(found)
+        if len(parts) == 3 and parts[0] == "exams" and parts[2] == "version":
+            found = self.store.version(owner, parts[1])
+            if found:
+                return self._json(found)
         self._not_found()
 
     def do_POST(self):
@@ -551,15 +669,23 @@ class Handler(SimpleHTTPRequestHandler):
         api = self._api()
         if not api:
             return None if api is False else self._not_found()
-        parts, owner, _ = api
+        parts, owner, query = api
         if len(parts) != 2 or parts[0] != "exams" or not _UID_RE.match(parts[1]):
             return self._json({"error": "Bad exam id."}, 400)
+        by = query.get("by", [""])[0]
+        if not _BY_RE.match(by):
+            return self._json({"error": "Bad 'by'."}, 400)
         exam = self._read_json()
         if exam is None:
             return
-        if not self.store.save(owner, parts[1], exam):
+        try:
+            saved = self.store.save(owner, parts[1], exam, base=query.get("base", [""])[0], by=by)
+        except Conflict as c:
+            return self._json({"error": "This exam was changed somewhere else since you opened it.",
+                               "updated_at": c.updated_at, "updated_by": c.updated_by}, 409)
+        if not saved:
             return self._not_found()
-        self._json({"ok": True})
+        self._json({"ok": True, "updated_at": saved})
 
     def do_DELETE(self):
         if self._settings_route("DELETE"):
@@ -578,6 +704,7 @@ def main():
     DATA.mkdir(exist_ok=True)
     Handler.store = ExamStore(DATA / "exams.db")
     Handler.settings = SchoolSettings(DATA)
+    Handler.claude = ClaudeExtension()
     backup_on_startup(Handler.store, DATA / "backups")
     httpd = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     logger.info("Exam Assistant running: http://localhost:%d  (other staff: http://%s:%d)",

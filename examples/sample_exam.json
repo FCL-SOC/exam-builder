@@ -1,0 +1,144 @@
+{
+  "learning_area": "Mathematics",
+  "subject": "Year 10 Mathematics",
+  "unit": "Functions and Statistics",
+  "semester": "1",
+  "year": "2026",
+  "reading_min": 10,
+  "writing_min": 50,
+  "calculator": "scientific",
+  "assessment_type": "Test",
+  "year_level": "10",
+  "no_write": true,
+  "sections": [
+    {
+      "name": "A",
+      "description": "Multiple choice",
+      "instructions": "Answer all questions. Circle the letter of the best answer. Each question is worth 1 mark.",
+      "questions": [
+        {
+          "marks": 1,
+          "blocks": [
+            {"type": "text", "value": "The gradient of the line $y = 3 - 2x$ is"},
+            {"type": "choices", "options": ["$3$", "$-2$", "$2$", "$\\frac{3}{2}$"], "correct": 1}
+          ]
+        },
+        {
+          "marks": 1,
+          "blocks": [
+            {"type": "text", "value": "Which graph shows $y = (x - 1)^2 - 2$?"},
+            {
+              "type": "choices",
+              "correct": 2,
+              "options": [
+                {"type": "graph", "x": {"min": -3, "max": 4}, "y": {"min": -3, "max": 4}, "functions": [{"expr": "(x + 1)^2 - 2"}]},
+                {"type": "graph", "x": {"min": -3, "max": 4}, "y": {"min": -3, "max": 4}, "functions": [{"expr": "(x - 1)^2 + 2"}]},
+                {"type": "graph", "x": {"min": -3, "max": 4}, "y": {"min": -3, "max": 4}, "functions": [{"expr": "(x - 1)^2 - 2"}]},
+                {"type": "graph", "x": {"min": -3, "max": 4}, "y": {"min": -3, "max": 4}, "functions": [{"expr": "-(x - 1)^2 - 2"}]}
+              ]
+            }
+          ]
+        },
+        {
+          "marks": 1,
+          "blocks": [
+            {"type": "text", "value": "A pair of jeans costs \\$80 after a 20% discount. The original price was"},
+            {"type": "choices", "options": ["\\$64", "\\$96", "\\$100", "\\$400"], "correct": 2}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "B",
+      "description": "Short answer",
+      "instructions": "Answer all questions in the spaces provided. Show your working.",
+      "questions": [
+        {
+          "blocks": [
+            {"type": "text", "value": "Consider the function $f(x) = x^2 - 4x + 3$."}
+          ],
+          "parts": [
+            {
+              "marks": 2,
+              "blocks": [
+                {"type": "text", "value": "Factorise $f(x)$."},
+                {"type": "lines", "n": 3}
+              ]
+            },
+            {
+              "marks": 2,
+              "blocks": [
+                {"type": "text", "value": "Hence find the $x$-intercepts of the graph of $y = f(x)$."},
+                {"type": "answer", "boxes": [{"label": "$x =$"}, {"label": "$x =$"}]}
+              ]
+            },
+            {
+              "marks": 3,
+              "blocks": [
+                {"type": "text", "value": "Sketch the graph of $y = f(x)$ on the axes below, labelling the intercepts and the turning point."},
+                {"type": "graph", "x": {"min": -2, "max": 6}, "y": {"min": -2, "max": 6}, "width": 60}
+              ]
+            }
+          ]
+        },
+        {
+          "blocks": [
+            {"type": "text", "value": "Solve the simultaneous equations"},
+            {"type": "equation", "value": "\\begin{aligned} 2x + y &= 7 \\\\ x - y &= 2 \\end{aligned}"},
+            {"type": "box", "height_cm": 5},
+            {"type": "answer", "boxes": [{"label": "$x =$"}, {"label": "$y =$"}]}
+          ],
+          "marks": 3,
+          "parts": []
+        },
+        {
+          "blocks": [
+            {"type": "text", "value": "The table shows the hours of study and test scores for five students."},
+            {"type": "table", "header": true, "rows": [["Hours of study", "1", "2", "4", "5", "7"], ["Score (%)", "52", "58", "70", "73", "85"]]}
+          ],
+          "parts": [
+            {
+              "marks": 2,
+              "blocks": [
+                {"type": "text", "value": "Plot the data on the axes below."},
+                {"type": "graph", "x": {"min": 0, "max": 8, "label": "Hours"}, "y": {"min": 40, "max": 100, "step": 10, "label": "Score"}, "width": 60}
+              ]
+            },
+            {
+              "marks": 2,
+              "blocks": [
+                {"type": "text", "value": "Describe the association between hours of study and score."},
+                {"type": "lines", "n": 3}
+              ]
+            }
+          ]
+        },
+        {
+          "new_page": true,
+          "blocks": [
+            {"type": "text", "value": "The box plot shows the heights, in cm, of 20 seedlings after two weeks."},
+            {"type": "graph", "kind": "boxplot", "x": {"min": 0, "max": 20, "step": 2, "label": "Height (cm)"},
+             "box": {"data": "3 5 6 6 7 8 8 9 9 9 10 10 11 12 12 13 14 15 16 19"}, "width": 80}
+          ],
+          "parts": [
+            {
+              "marks": 1,
+              "blocks": [
+                {"type": "text", "value": "Write down the median height."},
+                {"type": "answer", "boxes": [{"label": "", "units": "cm"}]}
+              ]
+            },
+            {
+              "marks": 2,
+              "blocks": [
+                {"type": "text", "value": "Calculate the interquartile range."},
+                {"type": "box", "height_cm": 4},
+                {"type": "answer", "boxes": [{"label": "IQR =", "units": "cm"}]}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
