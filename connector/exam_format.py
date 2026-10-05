@@ -558,8 +558,3 @@ def pack(exam: dict) -> str:
     comp = zlib.compressobj(9, zlib.DEFLATED, -15)
     data = comp.compress(raw) + comp.flush()
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
-
-
-def unpack(packed: str) -> dict:
-    data = base64.urlsafe_b64decode(packed + "=" * (-len(packed) % 4))
-    return json.loads(zlib.decompress(data, -15).decode("utf-8"))

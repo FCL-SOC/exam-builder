@@ -17,6 +17,7 @@ import io
 import re
 import zipfile
 from xml.etree import ElementTree
+from xml.sax.saxutils import escape
 
 MAX_ROWS = 2000
 MAX_CELL = 5000          # characters in one cell
@@ -70,7 +71,7 @@ class SheetError(Exception):
 
 def _csv_rows(raw):
     text = raw.decode("utf-8-sig", errors="replace")
-    return [row for row in csv.reader(io.StringIO(text))]
+    return list(csv.reader(io.StringIO(text)))
 
 
 def _xlsx_rows(raw):
@@ -227,7 +228,7 @@ def _graph(spec, row_no, problems):
             g["fit"] = _yes(value)
         elif key == "boxplot":
             nums = [float(n) for n in re.findall(r"-?[\d.]+", value)]
-            if len(nums) != 5 and len(nums) < 5:
+            if len(nums) < 5:
                 problems.append(f"Row {row_no}: boxplot needs five numbers, e.g. boxplot=2 6 9 13 18. "
                                 "If this sheet is a .csv, a comma inside a cell splits it — use spaces.")
                 nums = []
@@ -409,7 +410,7 @@ def rows_to_exam(rows, defaults=None):
                     continue
                 parent["parts"].append(item)
                 current[depth] = item
-                current[depth + 1] = None if depth + 1 in current else None
+                current[depth + 1] = None
             if row["content"]:                    # the wording written on the same row
                 item["blocks"].append({"type": "text", "value": row["content"]})
                 _warn_bare_maths(row["content"], row_no, warnings)
@@ -530,15 +531,8 @@ def template_rows():
 
 def template_csv():
     out = io.StringIO()
-    writer = csv.writer(out, lineterminator="\r\n")
-    for row in template_rows():
-        writer.writerow(row)
+    csv.writer(out, lineterminator="\r\n").writerows(template_rows())
     return out.getvalue().encode("utf-8-sig")
-
-
-def _xml_escape(text):
-    return (str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            .replace('"', "&quot;"))
 
 
 def template_xlsx():
@@ -554,7 +548,7 @@ def template_xlsx():
     rows_xml = []
     for r, row in enumerate(template_rows(), start=1):
         cells = "".join(
-            f'<c r="{col_name(c)}{r}" t="inlineStr"><is><t xml:space="preserve">{_xml_escape(v)}</t></is></c>'
+            f'<c r="{col_name(c)}{r}" t="inlineStr"><is><t xml:space="preserve">{escape(str(v))}</t></is></c>'
             for c, v in enumerate(row) if str(v) != "")
         rows_xml.append(f'<row r="{r}">{cells}</row>')
     sheet = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
