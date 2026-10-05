@@ -66,16 +66,17 @@ first, and can deploy it to everyone ([Claude Help Centre](https://support.claud
 
 | Tool | |
 |---|---|
-| `get_exam_format` | The format guide ([docs/exam-format.md](../docs/exam-format.md)), an example and the JSON Schema |
-| `list_exams` | The teacher's exams |
-| `get_exam` | A numbered outline with ids, the exam's content, and the editor link |
+| `get_format` | For exams: the format guide ([docs/exam-format.md](../docs/exam-format.md)), the question style guide, an example and the JSON Schema. For lesson plans: the lesson plan guide |
+| `list_my_work` | The teacher's exams and lesson plans |
+| `read` | An exam's numbered outline with ids and its content, or a lesson plan's text; and the editor link |
 | `create_exam` | A whole new exam in one go |
 | `edit_exam` | Changes applied all or nothing: `add`, `replace`, `remove`, `move` questions and parts; `add_section`, `update_section`; `update_details` (cover) |
-| `restore_version` | Puts the exam back as it was before Claude's last change(s) |
-| `get_lesson_plan_format` | The school's lesson plan guide: LEARN sections, Victorian Curriculum 2.0, formatting |
-| `list_lesson_plans`, `get_lesson_plan` | The teacher's lesson plans, and one plan's text |
-| `create_lesson_plan`, `edit_lesson_plan` | A new plan; or whole sections and details replaced (the rest kept) |
-| `restore_lesson_plan` | Puts the plan back as it was before Claude's last change(s) |
+| `write_lesson_plan` | A new lesson plan, or whole sections and details of one replaced (the rest kept). Shows the plan in the chat as a live preview |
+| `undo` | Puts an exam or lesson plan back as it was before Claude's last change(s) |
+
+Seven tools on purpose: Claude Desktop asks the teacher once per tool, so each one is a question. The preview is an
+[MCP App](https://claude.com/docs/connectors/building/mcp-apps/quickstart) (`connector/lesson-plan-view.html`) that
+refreshes itself through `lesson_plan_preview`, a tool only the preview can see.
 
 Claude writes questions by the school's **question style guide**: command terms (as in the VCAA glossary), the
 marks each usually earns, answer space per mark, multiple-choice conventions and wording. It ships as
@@ -128,4 +129,5 @@ python tests/browser_check.py [--server]       # a #data= link opens in Chromium
 python tests/live_check.py                     # live updates and merging in the editor
 python tests/school_check.py                   # school mode end to end, with the teacher watching
 python tests/plans_check.py                    # lesson plans: live updates, merging, Copy for Compass, Word
+python tests/plan_view_check.py                # the preview in the chat, driven by the reference MCP Apps host (needs npm)
 ```

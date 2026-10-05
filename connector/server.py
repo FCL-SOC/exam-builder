@@ -43,7 +43,7 @@ import time
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
 import uvicorn
@@ -80,11 +80,14 @@ log = logging.getLogger("exam-connector")
 GUIDE = (ROOT / "docs" / "exam-format.md").read_text(encoding="utf-8")
 DEFAULT_STYLE_GUIDE = (ROOT / "docs" / "question-style-guide.md").read_text(encoding="utf-8")
 DEFAULT_PLAN_GUIDE = (ROOT / "docs" / "lesson-plan-guide.md").read_text(encoding="utf-8")
+# The lesson plan preview shown in the chat, with the app's own formatting code inside it (one copy of the rules).
+PLAN_VIEW_HTML = (HERE / "lesson-plan-view.html").read_text(encoding="utf-8").replace(
+    "/*PLAN_EXPORT_JS*/", (ROOT / "static" / "plan-export.js").read_text(encoding="utf-8"))
 EXAMPLE = json.loads((ROOT / "examples" / "sample_exam.json").read_text(encoding="utf-8"))
 
 
 def format_text(style_guide: str) -> str:
-    """What get_exam_format returns: how exams are stored, how this school writes questions, an example, the schema."""
+    """The exam format tool's text: how exams are stored, how this school writes questions, an example, the schema."""
     return (f"{GUIDE}\n\n# Question style guide\n\nFollow this when writing or changing questions.\n\n"
             f"{style_guide.strip() or DEFAULT_STYLE_GUIDE}\n\n"
             f"# Complete example\n\n```json\n{json.dumps(EXAMPLE, indent=1)}\n```\n\n"
@@ -105,7 +108,7 @@ about ids, JSON, tools, formats, validation or errors you fixed along the way. I
 plainly and say what they can do instead. Keep replies short: what you did, the link, and anything they should check."""
 
 WRITING_RULES = """\
-Follow the question style guide in get_exam_format: command terms, marks that match the number of points a full
+Follow the question style guide in the exam format: command terms, marks that match the number of points a full
 answer needs, answer space to suit the marks, and four-option multiple choice with plausible distractors.
 Marks go on the deepest parts only. Never type question numbers, part letters or marks into text; they are
 automatic. Money is written \\$12.50 (a bare $ starts maths). Graph expressions are in x and use ^."""
@@ -125,28 +128,28 @@ Images can't be included; say where a diagram or photo should go and the teacher
 """
 
 SCHOOL_INSTRUCTIONS = f"""\
-Creates and edits exams in this school's Exam Assistant, the A4 exam editor the teacher uses in their browser.
-Changes you save appear in their open editor within a couple of seconds, so they can watch and adjust as you go.
+Creates and edits exams and lesson plans in this school's Exam Assistant, which the teacher uses in their browser.
+Changes you save appear there within a couple of seconds, so they can watch and adjust as you go.
 
-New exam: call get_exam_format once, then create_exam with the whole exam (all sections and questions at once).
+New exam: get_format(kind="exam") once, then create_exam with the whole exam (all sections and questions at once).
 Give the teacher the editor_link to open; from then on they see your changes live.
 
-Existing exam: list_exams to find it, get_exam for its outline and ids, then edit_exam with only the changes
-asked for (one call can carry many changes). Address sections, questions and parts by id, never by number:
-numbers shift when things move. Use the outline returned by each edit for the next one.
+Existing exam: list_my_work to find it, read for its outline and ids, then edit_exam with only the changes asked
+for (one call can carry many changes). Address sections, questions and parts by id, never by number: numbers shift
+when things move. Use the outline returned by each edit for the next one.
 
-The teacher may be editing at the same moment. If you both change the same question, their version wins, so call
-get_exam again before changing a question they have been working on.
+The teacher may be editing at the same moment. If you both change the same question, their version wins, so read
+again before changing a question they have been working on.
 
 {WRITING_RULES}
 Existing images appear as refs ("img-…") that you can keep, move or remove. New images can only be added by the
-teacher in the editor; say where one should go. restore_version undoes your last change if it was wrong.
+teacher in the editor; say where one should go. undo puts back an exam or plan if your last change was wrong.
 
-Lesson plans (LEARN framework, Victorian Curriculum 2.0) are in the same app: call get_lesson_plan_format once and
-follow it. Before writing a new plan, list_lesson_plans: if this lesson already has one, offer to change it rather
-than making a second; read the class's previous plan so today's builds on it. Use any files or links the teacher
-shares. Then create_lesson_plan, or edit_lesson_plan for an existing one (it replaces whole sections, so send only
-the sections asked about; the rest are kept). Give the teacher the editor_link, where they can copy the plan into
+Lesson plans (LEARN framework, Victorian Curriculum 2.0): get_format(kind="lesson_plan") once and follow it. Before
+writing a new plan, list_my_work: if this lesson already has a plan, offer to change it rather than making a second;
+read the class's previous plan so today's builds on it. Use any files or links the teacher shares. Then
+write_lesson_plan (no plan_id for a new plan; with plan_id it replaces only the sections you send). The plan shows in
+the chat as you write it; the editor_link opens it in Exam Assistant, where the teacher can edit it, copy it into
 Compass or download it as a Word document.
 
 {TALKING_TO_TEACHERS}
@@ -156,21 +159,9 @@ mcp = MCPServer(name="exam-assistant", title="Exam Assistant",
                 instructions=SCHOOL_INSTRUCTIONS if MODE == "school" else LINK_INSTRUCTIONS,
                 website_url="https://github.com/FCL-SOC/exam-builder", version="2.0.0")
 
-ExamArg = Annotated[dict[str, Any], Field(description="The whole exam as JSON, in the format from get_exam_format.")]
+ExamArg = Annotated[dict[str, Any], Field(description="The whole exam as JSON, in the exam format.")]
 READ = ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=False)
 WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False)
-
-
-@mcp.tool(title="Get the exam format", annotations=READ)
-def get_exam_format() -> str:
-    """How to write an exam: the format, the school's question style guide (command terms, marks, wording, answer
-    space), a complete example and the JSON Schema. Call this once before writing or changing questions."""
-    if MODE == "school":
-        try:
-            return format_text(school.server.settings().get("style_guide", ""))
-        except school_mode.SchoolError:
-            pass  # the guide that ships with the app will do
-    return format_text(DEFAULT_STYLE_GUIDE)
 
 
 def _date(ts: float) -> str:
@@ -179,9 +170,11 @@ def _date(ts: float) -> str:
 
 
 # ------------------------------------------------------------------ school mode
+# Seven tools: Claude Desktop asks the teacher once per tool ("Always allow"), so fewer tools means fewer questions.
 if MODE == "school":
     school = school_mode.School(school_mode.ExamServer(EXAM_SERVER), school_mode.History(DATA_DIR / "history.db"),
                                 EDITOR_URL)
+    book = plan_mode.PlanBook(school.server, school.history, EDITOR_URL)
 
     def staff_code(ctx: Context) -> str:
         """The teacher's code, sent by their Claude Desktop extension. Like the editor's, it is not a password."""
@@ -202,31 +195,62 @@ if MODE == "school":
                 raise ToolError(str(e)) from e
         return wrapper
 
-    @mcp.tool(title="List my exams", annotations=READ)
-    @guarded
-    def list_exams(ctx: Context) -> dict[str, Any]:
-        """The teacher's exams, most recently changed first: exam_id, title and details."""
-        owner = staff_code(ctx)
-        rows = school.server.list(owner)[:50]
-        return {"staff_code": owner, "exams": [
-            {"exam_id": r["uid"], "title": r.get("title") or "Untitled exam", "subject": r.get("subject") or "",
-             "assessment_type": r.get("assessment_type"), "year_level": r.get("year_level"),
-             "total_marks": r.get("total_marks"), "updated": (r.get("updated_at") or "")[:16].replace("T", " ")}
-            for r in rows]}
+    @mcp.tool(title="Get the format", annotations=READ)
+    def get_format(kind: Annotated[Literal["exam", "lesson_plan"], Field(description="What you are about to write.")]
+                   ) -> str:
+        """How to write an exam (format, the school's question style guide, an example, the JSON Schema) or a lesson
+        plan (the school's LEARN guide and formatting). Call it once before writing or changing either."""
+        try:
+            settings = school.server.settings()
+        except school_mode.SchoolError:
+            settings = {}  # the guides that ship with the app will do
+        if kind == "exam":
+            return format_text(settings.get("style_guide", "") or DEFAULT_STYLE_GUIDE)
+        return PLAN_FORMAT + (settings.get("plan_guide", "").strip() or DEFAULT_PLAN_GUIDE)
 
-    @mcp.tool(title="Read an exam", annotations=READ)
+    @mcp.tool(title="List my exams and lesson plans", annotations=READ)
     @guarded
-    def get_exam(exam_id: str, ctx: Context) -> dict[str, Any]:
-        """An exam's numbered outline (with the ids edit_exam needs), its full JSON, and the link that opens it."""
+    def list_my_work(ctx: Context) -> dict[str, Any]:
+        """The teacher's exams and lesson plans, most recently changed first, with their ids."""
         owner = staff_code(ctx)
-        found = school.read(owner, exam_id)
+        when = lambda r: (r.get("updated_at") or "")[:16].replace("T", " ")  # noqa: E731
+        return {"staff_code": owner,
+                "exams": [{"exam_id": r["uid"], "title": r.get("title") or "Untitled exam",
+                           "subject": r.get("subject") or "", "assessment_type": r.get("assessment_type"),
+                           "year_level": r.get("year_level"), "total_marks": r.get("total_marks"), "updated": when(r)}
+                          for r in school.server.list(owner)[:40]],
+                "lesson_plans": [{"plan_id": r["uid"], "title": r.get("title") or "Untitled lesson plan",
+                                  "class_code": r.get("class_code"), "lesson_date": r.get("lesson_date"),
+                                  "topic": r.get("topic"), "updated": when(r)}
+                                 for r in book.list(owner)[:40]]}
+
+    def _kind(owner: str, item_id: str) -> str:
+        if school.server.get(owner, item_id):
+            return "exam"
+        if school.server.get(owner, item_id, kind="plans"):
+            return "lesson_plan"
+        raise school_mode.SchoolError(f"There's no exam or lesson plan with id {item_id!r} in {owner}'s work. "
+                                      "Use list_my_work to find it.")
+
+    @mcp.tool(title="Read an exam or lesson plan", annotations=READ)
+    @guarded
+    def read(item_id: Annotated[str, Field(description="An exam_id or plan_id from list_my_work.")],
+             ctx: Context) -> dict[str, Any]:
+        """An exam's numbered outline (with the ids edit_exam needs) and content, or a lesson plan's details and
+        sections; and the link that opens it."""
+        owner = staff_code(ctx)
+        if _kind(owner, item_id) == "lesson_plan":
+            found = book.read(owner, item_id)
+            return {"kind": "lesson_plan", "plan_id": item_id, "editor_link": book.link(item_id),
+                    "read_only": found["owner"] != owner, "plan": plan_mode.as_text(found["exam"], item_id)}
+        found = school.read(owner, item_id)
         if found["owner"] == owner and exam_format.ensure_ids(copy.deepcopy(found["exam"])):
             # An older exam: give it ids first. Not an undo step: nothing visible changed.
-            school.change(owner, exam_id, lambda exam, images: set(), "ids", keep_history=False)
-            found = school.read(owner, exam_id)
+            school.change(owner, item_id, lambda exam, images: set(), "ids", keep_history=False)
+            found = school.read(owner, item_id)
         shown, _ = school_mode.hide_images(found["exam"])
-        return {"exam_id": exam_id, "editor_link": school.link(exam_id), "read_only": found["owner"] != owner,
-                "outline": school_mode.outline(shown, exam_id), "exam": shown}
+        return {"kind": "exam", "exam_id": item_id, "editor_link": school.link(item_id),
+                "read_only": found["owner"] != owner, "outline": school_mode.outline(shown, item_id), "exam": shown}
 
     @mcp.tool(title="Create an exam", annotations=WRITE)
     @guarded
@@ -250,7 +274,7 @@ if MODE == "school":
     @guarded
     def edit_exam(exam_id: str,
                   changes: Annotated[list[school_mode.Change], Field(min_length=1, description=(
-                      "Applied in order, all or nothing. Address things by the ids in get_exam's outline."))],
+                      "Applied in order, all or nothing. Address things by the ids in read's outline."))],
                   ctx: Context) -> dict[str, Any]:
         """Change an existing exam: add, rewrite, remove or move questions and parts; add or change sections; change
         cover details. Only what you change is touched; anything the teacher is editing at the same time is kept.
@@ -263,105 +287,78 @@ if MODE == "school":
             log.info("%s edited %s: %s", owner, exam_id, note)
         return result
 
+    SectionsArg = Annotated[dict[str, str] | None, Field(description=(
+        "Sections by letter (L, E, A, R, N), each the section's whole text in the plan format. Include only the "
+        "sections you are writing or changing."))]
+    DetailsArg = Annotated[dict[str, str] | None, Field(description=(
+        "Any of: class_code (e.g. 10MM1), subject, year_level (e.g. 10), topic, lesson_date (YYYY-MM-DD)."))]
+    PLAN_VIEW = "ui://exam-assistant/lesson-plan"
+
+    @mcp.tool(title="Write a lesson plan", annotations=WRITE, meta={"ui": {"resourceUri": PLAN_VIEW}})
+    @guarded
+    def write_lesson_plan(ctx: Context, sections: SectionsArg = None, details: DetailsArg = None,
+                          plan_id: Annotated[str | None, Field(description=(
+                              "Leave out to create a new plan; give a plan_id to change that plan."))] = None
+                          ) -> dict[str, Any]:
+        """Create a lesson plan, or change one: give plan_id, and only the sections and details to change (the rest
+        are kept, and so is anything the teacher is typing). The teacher sees the plan in the chat as you write it."""
+        owner = staff_code(ctx)
+        if not plan_id:
+            result = book.create(owner, details or {}, sections or {})
+            if result["ok"]:
+                log.info("%s created lesson plan %s", owner, result["plan_id"])
+            return result
+        if not sections and not details:
+            raise ToolError("Give the sections and/or details to change.")
+        return book.change(owner, plan_id, details or {}, sections or {}, ", ".join([*(sections or {}), *(details or {})]))
+
+    @mcp.tool(title="Lesson plan preview", annotations=READ,
+              meta={"ui": {"resourceUri": PLAN_VIEW, "visibility": ["app"]}})
+    @guarded
+    def lesson_plan_preview(plan_id: str, ctx: Context) -> dict[str, Any]:
+        """For the preview in the chat only: the plan as it is now, so the preview keeps up with changes."""
+        owner = staff_code(ctx)
+        found = book.read(owner, plan_id)
+        return {"ok": True, "plan_id": plan_id, "editor_link": book.link(plan_id),
+                "plan": plan_mode.shown(found["exam"])}
+
+    @mcp.resource(PLAN_VIEW, name="Lesson plan preview", mime_type="text/html;profile=mcp-app",
+                  description="Shows a lesson plan in the chat, kept up to date.")
+    def lesson_plan_view() -> str:
+        return PLAN_VIEW_HTML
+
     @mcp.tool(title="Undo Claude's last change", annotations=WRITE)
     @guarded
-    def restore_version(exam_id: str, ctx: Context,
-                        steps: Annotated[int, Field(ge=1, le=30, description="1 = before your last change, 2 = before "
-                                                                              "the one before, …")] = 1) -> dict[str, Any]:
-        """Put an exam back the way it was before your last change (or several). This restores the whole exam, so
-        edits the teacher made since then are undone too. It can itself be undone: call it again with steps=1."""
+    def undo(item_id: Annotated[str, Field(description="The exam_id or plan_id.")], ctx: Context,
+             steps: Annotated[int, Field(ge=1, le=30, description="1 = before your last change, 2 = before the one "
+                                                                  "before, …")] = 1) -> dict[str, Any]:
+        """Put an exam or lesson plan back the way it was before your last change (or several). Edits the teacher
+        made since then are undone too. It can itself be undone: call it again with steps=1."""
         owner = staff_code(ctx)
-        versions = school.history.recent(exam_id, owner)
+        kind = _kind(owner, item_id)
+        versions = school.history.recent(item_id, owner)
         if len(versions) < steps:
-            raise ToolError(f"Only {len(versions)} earlier version(s) of this exam are kept.")
+            raise ToolError(f"Only {len(versions)} earlier version(s) are kept.")
         target = versions[steps - 1]["exam"]
+        if kind == "lesson_plan":
+            return book.change(owner, item_id, {}, {}, f"restore {steps}", replace=target)
 
         def put_back(exam: dict, images: dict) -> set[str]:
             exam.clear()
             exam.update(copy.deepcopy(target))
             return set()
 
-        return school.change(owner, exam_id, put_back, f"restore {steps}")
-
-
-    # ---------------------------------------------------------- lesson plans
-    book = plan_mode.PlanBook(school.server, school.history, EDITOR_URL)
-    SectionsArg = Annotated[dict[str, str], Field(description=(
-        "Sections by letter (L, E, A, R, N), each the section's whole text in the plan format. Include only the "
-        "sections you are writing or changing."))]
-    DetailsArg = Annotated[dict[str, str], Field(description=(
-        "Any of: class_code (e.g. 10MM1), subject, year_level (e.g. 10), topic, lesson_date (YYYY-MM-DD)."))]
-
-    @mcp.tool(title="Get the lesson plan format", annotations=READ)
-    def get_lesson_plan_format() -> str:
-        """How to write a lesson plan: what goes in each LEARN section and the formatting that Compass and Word
-        understand. Call this once before writing or changing a lesson plan."""
-        try:
-            guide = school.server.settings().get("plan_guide", "")
-        except school_mode.SchoolError:
-            guide = ""
-        return PLAN_FORMAT + (guide.strip() or DEFAULT_PLAN_GUIDE)
-
-    @mcp.tool(title="List my lesson plans", annotations=READ)
-    @guarded
-    def list_lesson_plans(ctx: Context) -> dict[str, Any]:
-        """The teacher's lesson plans, most recently changed first: plan_id, title, class, date and topic."""
-        owner = staff_code(ctx)
-        return {"staff_code": owner, "lesson_plans": [
-            {"plan_id": r["uid"], "title": r.get("title") or "Untitled lesson plan", "class_code": r.get("class_code"),
-             "lesson_date": r.get("lesson_date"), "topic": r.get("topic"),
-             "updated": (r.get("updated_at") or "")[:16].replace("T", " ")}
-            for r in book.list(owner)[:50]]}
-
-    @mcp.tool(title="Read a lesson plan", annotations=READ)
-    @guarded
-    def get_lesson_plan(plan_id: str, ctx: Context) -> dict[str, Any]:
-        """A lesson plan's details and the text of each section, and the link that opens it."""
-        owner = staff_code(ctx)
-        found = book.read(owner, plan_id)
-        return {"plan_id": plan_id, "editor_link": book.link(plan_id), "read_only": found["owner"] != owner,
-                "plan": plan_mode.as_text(found["exam"], plan_id)}
-
-    @mcp.tool(title="Create a lesson plan", annotations=WRITE)
-    @guarded
-    def create_lesson_plan(details: DetailsArg, sections: SectionsArg, ctx: Context) -> dict[str, Any]:
-        """Create a new lesson plan in the teacher's library. Returns its plan_id and the editor_link to give the
-        teacher; once it is open, changes you make appear there live."""
-        owner = staff_code(ctx)
-        result = book.create(owner, details, sections)
-        if result["ok"]:
-            log.info("%s created lesson plan %s", owner, result["plan_id"])
-        return result
-
-    @mcp.tool(title="Change a lesson plan", annotations=WRITE)
-    @guarded
-    def edit_lesson_plan(plan_id: str, ctx: Context, sections: SectionsArg | None = None,
-                         details: DetailsArg | None = None) -> dict[str, Any]:
-        """Rewrite whole sections and/or change details of an existing lesson plan. Sections you leave out are
-        kept, and so is anything the teacher is typing at the same moment."""
-        owner = staff_code(ctx)
-        if not sections and not details:
-            raise ToolError("Give the sections and/or details to change.")
-        note = ", ".join([*(sections or {}), *(details or {})])
-        return book.change(owner, plan_id, details or {}, sections or {}, note)
-
-    @mcp.tool(title="Undo Claude's last lesson plan change", annotations=WRITE)
-    @guarded
-    def restore_lesson_plan(plan_id: str, ctx: Context,
-                            steps: Annotated[int, Field(ge=1, le=30, description="1 = before your last change, 2 = "
-                                                                                  "before the one before, …")] = 1
-                            ) -> dict[str, Any]:
-        """Put a lesson plan back the way it was before your last change (or several). Edits the teacher made since
-        then are undone too. It can itself be undone: call it again with steps=1."""
-        owner = staff_code(ctx)
-        versions = school.history.recent(plan_id, owner)
-        if len(versions) < steps:
-            raise ToolError(f"Only {len(versions)} earlier version(s) of this lesson plan are kept.")
-        return book.change(owner, plan_id, {}, {}, f"restore {steps}", replace=versions[steps - 1]["exam"])
+        return school.change(owner, item_id, put_back, f"restore {steps}")
 
 
 # ------------------------------------------------------------------ link mode
 else:
+    @mcp.tool(title="Get the exam format", annotations=READ)
+    def get_exam_format() -> str:
+        """How to write an exam: the format, the question style guide (command terms, marks, wording, answer
+        space), a complete example and the JSON Schema. Call this once before writing or changing questions."""
+        return format_text(DEFAULT_STYLE_GUIDE)
+
     links = LinkStore(DATA_DIR / "links.db", days=LINK_DAYS)
 
     @mcp.tool(title="Check an exam", annotations=READ)

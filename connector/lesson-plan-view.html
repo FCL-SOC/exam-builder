@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="color-scheme" content="light dark">
+<title>Lesson plan</title>
+<!--
+  The lesson plan preview Claude shows in the chat (an "MCP App"). It shows the plan as it will paste into Compass
+  and keeps itself up to date while Claude, or the teacher in Exam Assistant, changes it. Read-only: editing,
+  Copy for Compass and Word are in Exam Assistant, one click away.
+
+  It talks to Claude with the MCP Apps protocol (JSON-RPC over postMessage); the few messages it needs are written
+  out below rather than loading the 300 KB client library, which the school's web filter might block anyway.
+  The text formatting is static/plan-export.js, inserted where PLAN_EXPORT_JS is, so it can't drift from Compass.
+-->
+<style>
+  :root { --bg: var(--color-background-primary, #fff); --fg: var(--color-text-primary, #1d2330);
+          --muted: var(--color-text-secondary, #5b6475); --line: var(--color-border-secondary, #d5d9e0);
+          --accent: #8B0000; font-family: var(--font-sans, system-ui, "Segoe UI", Arial, sans-serif); }
+  body { margin: 0; padding: 10px 12px 12px; background: var(--bg); color: var(--fg); font-size: 14px; line-height: 1.5; }
+  header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  h1 { font-size: 16px; margin: 0; flex: 1; min-width: 12em; }
+  .meta { color: var(--muted); font-size: 13px; width: 100%; margin-top: -6px; }
+  button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 6px; cursor: pointer;
+           border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+  table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  td { border: 1px solid var(--line); padding: 6px 9px; vertical-align: top; overflow-wrap: anywhere; }
+  td.k { width: 26px; text-align: center; font-size: 18px; font-weight: 700; color: var(--accent); }
+  td.n { width: 92px; font-weight: 700; font-size: 12px; color: var(--muted); }
+  tr.changed td { animation: flash 2.5s ease-out; }
+  @keyframes flash { from { background: rgba(255, 214, 0, .45); } to { background: transparent; } }
+  .empty { color: var(--muted); font-style: italic; }
+  .status { color: var(--muted); font-size: 12px; margin-top: 6px; }
+</style></head>
+<body>
+<header><h1 id="title">Lesson plan</h1><button id="open" hidden>Open in Exam Assistant</button>
+  <div class="meta" id="meta"></div></header>
+<table><tbody id="rows"></tbody></table>
+<div class="status" id="status">Waiting for the plan…</div>
+<script>
+/*PLAN_EXPORT_JS*/
+</script>
+<script>
+"use strict";
+const SECTIONS = [["L", "Learning Clarity"], ["E", "Explain"], ["A", "Application"], ["R", "Reflect"], ["N", "Next Steps"]];
+const POLL_MS = 3000, POLL_FOR_MS = 20 * 60 * 1000;  // live for 20 minutes after the plan is shown
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let planId = null, link = null, shown = null, pollUntil = 0;
+
+// ---------------------------------------------------------------- talking to Claude (MCP Apps protocol)
+let nextId = 1;
+const pending = new Map();
+const post = message => window.parent.postMessage({ jsonrpc: "2.0", ...message }, "*");
+const request = (method, params) => new Promise((resolve, reject) => {
+  const id = nextId++;
+  pending.set(id, { resolve, reject });
+  post({ id, method, params });
+});
+window.addEventListener("message", event => {
+  if (event.source !== window.parent) return;
+  const m = event.data;
+  if (!m || m.jsonrpc !== "2.0") return;
+  if (m.id !== undefined && !m.method) {  // a reply to one of our requests
+    const p = pending.get(m.id);
+    pending.delete(m.id);
+    if (p) m.error ? p.reject(new Error(m.error.message)) : p.resolve(m.result);
+  } else if (m.method === "ui/notifications/tool-result") {
+    show(m.params?.structuredContent);
+  } else if (m.id !== undefined) {  // a request from Claude (e.g. teardown, ping): nothing to do but say so
+    post({ id: m.id, result: {} });
+  }
+});
+
+// ---------------------------------------------------------------- showing the plan
+function show(result) {
+  const plan = result?.plan;
+  if (!plan || typeof plan !== "object") {
+    if (result && result.ok === false) $("status").textContent = "Claude is still fixing this plan.";
+    return;
+  }
+  if (result.plan_id) planId = result.plan_id;
+  if (result.editor_link) { link = result.editor_link; $("open").hidden = false; }
+  const changed = new Set(shown ? SECTIONS.map(([k]) => k).filter(k => shown.sections?.[k] !== plan.sections?.[k]) : []);
+  shown = plan;
+  $("title").textContent = plan.title || "Lesson plan";
+  const when = plan.lesson_date ? new Date(plan.lesson_date + "T00:00").toLocaleDateString("en-AU",
+    { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "";
+  $("meta").textContent = [plan.subject, plan.year_level && `Year ${plan.year_level}`, when].filter(Boolean).join(" · ");
+  $("rows").innerHTML = SECTIONS.map(([k, name]) => {
+    const text = plan.sections?.[k] || "";
+    const body = text.trim() ? compassHtml(sectionText(k, text)) : '<span class="empty">Not written yet</span>';
+    return `<tr data-k="${k}" class="${changed.has(k) ? "changed" : ""}"><td class="k">${k}</td><td class="n">${name}</td><td>${body}</td></tr>`;
+  }).join("");
+  // Compass draws fractions as equations; here they are written out as text (b/2), which is enough for a preview.
+  for (const el of document.querySelectorAll(".my-math")) el.textContent = latexToUnicode(el.textContent.replace(/^\\\[|\\\]$/g, ""), false);
+  $("status").textContent = "Updates by itself while Claude works. Edit, copy for Compass or download Word in Exam Assistant.";
+  pollUntil = Date.now() + POLL_FOR_MS;
+  sendSize();
+}
+
+async function poll() {
+  if (planId && Date.now() < pollUntil && !document.hidden) {
+    try {
+      const r = await request("tools/call", { name: "lesson_plan_preview", arguments: { plan_id: planId } });
+      if (r?.structuredContent?.plan && JSON.stringify(r.structuredContent.plan) !== JSON.stringify(shown)) show(r.structuredContent);
+    } catch { /* offline for a moment, or Claude didn't allow it: the last version stays on screen */ }
+  }
+  setTimeout(poll, POLL_MS);
+}
+
+function sendSize() {
+  post({ method: "ui/notifications/size-changed", params: { height: Math.ceil(document.documentElement.scrollHeight) } });
+}
+new ResizeObserver(sendSize).observe(document.body);
+
+$("open").onclick = () => { if (link) request("ui/open-link", { url: link }).catch(() => {}); };
+
+request("ui/initialize", { appInfo: { name: "Exam Assistant lesson plan", version: "1.0.0" }, appCapabilities: {},
+                           protocolVersion: "2026-01-26" })
+  .then(() => { post({ method: "ui/notifications/initialized", params: {} }); setTimeout(poll, POLL_MS); })
+  .catch(() => { $("status").textContent = "Open the plan in Exam Assistant to see it."; });
+</script>
+</body></html>

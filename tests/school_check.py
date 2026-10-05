@@ -118,7 +118,7 @@ def main() -> int:
             check("the editor link opens the exam", "Factorise" in page.inner_text("#paper"))
 
             # The teacher asks for one more question and a change to question 1; they watch it happen.
-            read = claude(connector, "get_exam", exam_id=created["exam_id"])
+            read = claude(connector, "read", item_id=created["exam_id"])
             section = read["exam"]["sections"][0]["id"]
             first = read["exam"]["sections"][0]["questions"][0]["id"]
             started = time.time()
@@ -133,9 +133,9 @@ def main() -> int:
             check("status says Claude", page.inner_text("#status") == "Updated by Claude", page.inner_text("#status"))
 
             # Undo from the chat.
-            claude(connector, "restore_version", exam_id=created["exam_id"])
+            claude(connector, "undo", item_id=created["exam_id"])
             page.wait_for_function("!document.querySelector('#paper').innerText.includes('Solve')", timeout=6000)
-            check("restore_version shows live too", "Expand and simplify" not in page.inner_text("#paper"))
+            check("undo shows live too", "Expand and simplify" not in page.inner_text("#paper"))
             check("no page errors", not errors, errors)
             browser.close()
     finally:
