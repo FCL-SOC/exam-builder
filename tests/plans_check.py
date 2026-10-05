@@ -7,12 +7,14 @@ merging with the teacher's own. Needs Playwright and Chromium, like browser_chec
 "Claude" here is the same version-checked API call the connector makes. Exits non-zero on any failure.
 """
 
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.request
+import zipfile
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -78,7 +80,8 @@ def main() -> int:
             page.wait_for_function("document.querySelector('#status').textContent === 'Saved'", timeout=8000)
             cell = page.locator('.content[data-k="L"]')
             check("bold renders", cell.locator("b").inner_text() == "Learning Intentions")
-            check("bullets render", cell.locator("li").count() == 2)
+            check("bullets render (every L line but the headings, as Compass gets it)", cell.locator("li").count() == 3,
+                  cell.locator("li").count())
             check("maths renders", cell.locator(".ML__latex").count() >= 2)
             uid = page.evaluate("uid")
             saved = api.call("GET", f"plans/{uid}")[1]
@@ -105,6 +108,62 @@ def main() -> int:
             check("same section: the teacher's version kept", final["L"].endswith("I can solve by completing the square"), final["L"][-60:])
             check("different section: Claude's kept", final["A"] == "Complete Exercise 4F Q1–8.", final["A"])
             check("the teacher is told", "your version was kept" in page.inner_text("#status"), page.inner_text("#status"))
+
+            # The outputs. E has inline maths that reads as text, a fraction that needs a real equation, and money.
+            claude_edit(api, uid, lambda p: p["sections"].update(
+                E="**Perfect square**\nA *perfect square* is $x^2 + 6x + 9$.\n$$\\frac{b}{2}$$\nTickets cost \\$12.50 each."))
+            page.wait_for_function("document.querySelector('.content[data-k=\"E\"]').innerText.includes('Tickets')", timeout=6000)
+            check("\\$ shows as a dollar sign", "Tickets cost $12.50 each." in page.inner_text('.content[data-k="E"]'),
+                  page.inner_text('.content[data-k="E"]'))
+            ctx.grant_permissions(["clipboard-read", "clipboard-write"])
+            page.click("#copy-btn")
+            page.wait_for_function("document.querySelector('#status').textContent.startsWith('Copied')", timeout=3000)
+            pasted = page.evaluate("""async () => {
+                const item = (await navigator.clipboard.read())[0];
+                return [await (await item.getType('text/html')).text(), await (await item.getType('text/plain')).text()]; }""")
+            html, plain = pasted
+            check("Compass copy: one row per LEARN letter plus the logo row", html.count("<tr") == 6, html.count("<tr"))
+            check("Compass copy: simple maths as text", "x² + 6x + 9" in html, html[:300])
+            check("Compass copy: a fraction as a Compass equation", '<span class="my-math">\\[\\frac{b}{2}\\]</span>' in html)
+            check("Compass copy: bold, italic, bullets", all(x in html for x in ("<b>Perfect square</b>", "<i>perfect square</i>", "•")), html[html.find("Learning"):][:900])
+            check("Compass copy: money", "$12.50" in html and "$12.50" in plain)
+            check("Compass copy: plain-text version", plain.startswith("Learning Clarity\n") and "x² + 6x + 9" in plain)
+            # Over plain http (as on the school server) the clipboard API isn't there: the copy-event fallback.
+            fallback = page.evaluate("""() => { let got = null;
+                document.addEventListener('copy', e => setTimeout(() => {}), { once: true });
+                const real = document.execCommand.bind(document);
+                document.execCommand = cmd => { const ev = new Event('copy'); ev.clipboardData = { setData: (t, v) => { if (t === 'text/html') got = v; } };
+                    document.dispatchEvent(ev); return true; };
+                const secure = Object.getOwnPropertyDescriptor(window, 'isSecureContext');
+                Object.defineProperty(window, 'isSecureContext', { value: false, configurable: true });
+                return copyRich('<b>x</b>', 'x').then(ok => { document.execCommand = real; return [ok, got]; }); }""")
+            check("Compass copy works without the clipboard API", fallback == [True, "<b>x</b>"], fallback)
+
+            with page.expect_download() as dl:
+                page.click("#word-btn")
+            docx = tmp / "plan.docx"
+            dl.value.save_as(docx)
+            check("Word file name", dl.value.suggested_filename == "10MM1 · Completing the square.docx", dl.value.suggested_filename)
+            with zipfile.ZipFile(docx) as z:
+                check("Word file is a sound zip", z.testzip() is None)
+                xml = z.read("word/document.xml").decode()
+            check("Word: maths as text, money, bold", all(x in xml for x in ("x² + 6x + 9", "$12.50", "<w:b/>")))
+            try:
+                import docx as python_docx
+                d = python_docx.Document(str(docx))
+                table = d.tables[0]
+                check("Word: logo row and five LEARN rows", len(table.rows) == 6, len(table.rows))
+                check("Word: section E", table.rows[2].cells[0].text == "E" and "Tickets cost $12.50" in table.rows[2].cells[2].text,
+                      table.rows[2].cells[2].text)
+                check("Word: the title above the table", d.paragraphs[0].text == "10MM1 · Completing the square")
+            except ImportError:
+                print("     (python-docx not installed: Word structure not checked)")
+            if shutil.which("soffice"):
+                out = subprocess.run(["soffice", "--headless", "--convert-to", "pdf", "--outdir", str(tmp), str(docx)],
+                                     capture_output=True, timeout=120)
+                check("Word file opens in LibreOffice", (tmp / "plan.pdf").exists(), out.stderr.decode()[-200:])
+            if os.environ.get("KEEP_OUTPUT"):
+                shutil.copy(docx, os.environ["KEEP_OUTPUT"])
 
             # Undo, the list, and the link Claude would give.
             page.click("#back-btn")

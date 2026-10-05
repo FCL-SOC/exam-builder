@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="mathlive/mathlive-fonts.css">
 <script src="mathlive/mathlive.min.js"></script>
 <script src="demo.js"></script>
+<script src="plan-export.js"></script>
 <style>
   :root { --red: #8B0000; --gold: #B8860B; --border: #D0C8BC; --radius: 6px; }
   [hidden] { display: none !important; }
@@ -87,7 +88,7 @@
   </div>
   <table class="learn"><tbody id="learn"></tbody></table>
   <p class="hint">Click a section to change it. <b>**bold**</b>, <i>*italic*</i>, a line starting with "- " is a bullet,
-    "1. " is numbered, and $x^2$ is maths.</p>
+    "1. " is numbered, and $x^2$ is maths (write \$5 for a dollar amount).</p>
 </main>
 
 <script>
@@ -101,7 +102,7 @@ const planTitle = p => [p.class_code, p.topic].filter(Boolean).join(" · ") || "
 // ---------------------------------------------------------------- state
 let code = "", uid = null, plan = null, version = null, baseJson = null;
 let saving = false, dirty = false, saveTimer = null, pulling = false, notice = "", editing = null;
-let undoStack = [], settings = { school_name: "Your School", has_logo: false };
+let undoStack = [], settings = { school_name: "Your School", has_logo: false }, logo = null;
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -124,13 +125,14 @@ function tex(latex, display) {
 }
 function inline(text) {
   const out = [];
-  for (const [i, part] of String(text).split(/(\$\$[^$]+\$\$|\$[^$]+\$)/).entries()) {
+  for (const [i, part] of protectDollars(text).split(/(\$\$[^$]+\$\$|\$[^$]+\$)/).entries()) {
     if (i % 2) { out.push(part.startsWith("$$") ? `<span class="display">${tex(part.slice(2, -2), true)}</span>` : tex(part.slice(1, -1))); continue; }
     out.push(esc(part)
       .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+|\/[^)\s]*)\)/g, '<img alt="$1" src="$2">')
       .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
       .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
-      .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<i>$2</i>"));
+      .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<i>$2</i>")
+      .replace(/\u0001/g, "$"));
   }
   return out.join("");
 }
@@ -308,8 +310,28 @@ async function openPlan(id) {
 }
 
 function logoCell() {
-  return settings.has_logo ? `<img src="/school-logo?v=${Date.now()}" alt="">` : `<span class="school">${esc(settings.school_name)}</span>`;
+  return logo ? `<img src="${logo.dataUrl}" alt="">` : `<span class="school">${esc(settings.school_name)}</span>`;
 }
+
+// ---------------------------------------------------------------- Copy for Compass, Word
+async function copyForCompass() {
+  const { html, plain } = buildCompassClipboard(plan, SECTIONS, logo, settings.school_name);
+  if (await copyRich(html, plain)) {
+    setStatus("Copied: paste it into the lesson plan in Compass");
+  } else {
+    setStatus("Couldn't copy. Click Copy for Compass again, or use Download Word.", true);
+  }
+}
+function downloadWord() {
+  const title = planTitle(plan);
+  const blob = buildDocx(plan, SECTIONS, logo, settings.school_name, title);
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob),
+    download: (title.replace(/[\\/:*?"<>|]+/g, "-").trim() || "Lesson plan") + ".docx" });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+$("#copy-btn").onclick = copyForCompass;
+$("#word-btn").onclick = downloadWord;
 function renderEditor(flash = new Set()) {
   for (const input of document.querySelectorAll(".details-form [data-field]")) {
     if (document.activeElement !== input) input.value = plan[input.dataset.field] || "";
@@ -318,7 +340,7 @@ function renderEditor(flash = new Set()) {
   for (const [k, name] of SECTIONS) {
     const body = editing === k
       ? `<textarea class="edit" data-k="${k}">${esc(plan.sections[k])}</textarea>`
-      : `<div class="content" data-k="${k}">${renderMarkdown(plan.sections[k])}</div>`;
+      : `<div class="content" data-k="${k}">${renderMarkdown(sectionText(k, plan.sections[k]))}</div>`;
     rows.push(`<tr data-k="${k}" class="${flash.has(k) ? "remote-change" : ""}"><td class="letter">${k}</td><td class="name">${name}</td><td class="content-cell">${body}</td></tr>`);
   }
   $("#learn").innerHTML = rows.join("");
@@ -365,9 +387,10 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) { ch
 
 try { code = normalise(localStorage.getItem("staffCode")); } catch {}
 $("#code").value = code;
-api("/api/settings").then(s => {
+api("/api/settings").then(async s => {
   settings = { ...settings, ...s };
   if (s.theme_colour) document.documentElement.style.setProperty("--red", s.theme_colour);
+  if (s.has_logo) logo = await loadLogo(window.demoLogoUrl || `/school-logo?v=${Date.now()}`);
 }).catch(() => {}).finally(() => {
   const m = location.hash.match(/^#plan=([a-z0-9-]+)$/);
   if (m && code) openPlan(m[1]); else renderHome();
