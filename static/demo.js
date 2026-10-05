@@ -6,7 +6,8 @@
   if (!demo) return;
   window.EXAM_DEMO = true;
 
-  const exams = new Map();                        // uid -> { owner, exam, updated_at }
+  const stores = { exams: new Map(), plans: new Map() };  // lesson plans live separately, as on the server
+  const exams = stores.exams;                        // uid -> { owner, exam, updated_at }
   const settings = { pin_set: true, has_logo: false };  // the app fills in its built-in defaults
   let clock = 0;
   const now = () => new Date(Date.now() + clock++).toISOString();  // strictly increasing, for "most recent first"
@@ -49,7 +50,12 @@
       return json(newestFirst([...exams].filter(([, r]) => r.exam.shared && (!learningArea || r.exam.learning_area === learningArea))
         .map(([uid, r]) => summary(uid, r))));
     }
-    if (area === "exams") {
+    if (area === "plans" && !id) {
+      return json(newestFirst([...stores.plans].filter(([, r]) => r.owner === owner).map(([uid, r]) => ({ ...summary(uid, r),
+        class_code: r.exam.class_code ?? null, lesson_date: r.exam.lesson_date ?? null, topic: r.exam.topic ?? null }))));
+    }
+    if (area === "exams" || area === "plans") {
+      const exams = stores[area];
       const r = exams.get(id), notFound = json({ error: "Exam not found." }, 404);
       const visible = r && (r.owner === owner || r.exam.shared);
       if (method === "GET" && sub === "version") return visible ? json({ updated_at: r.updated_at, updated_by: r.updated_by || "" }) : notFound;
@@ -74,5 +80,5 @@
   };
 
   // Closing the tab loses everything, so ask first once there is something to lose.
-  addEventListener("beforeunload", e => { if (exams.size) { e.preventDefault(); e.returnValue = ""; } });
+  addEventListener("beforeunload", e => { if (exams.size || stores.plans.size) { e.preventDefault(); e.returnValue = ""; } });
 })();

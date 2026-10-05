@@ -55,8 +55,8 @@ _HOST_RE = re.compile(r"^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]+)(:\d+)?$")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("exam-assistant")
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS exams (
+SCHEMA_TEMPLATE = """
+CREATE TABLE IF NOT EXISTS {table} (
     exam_uid      TEXT PRIMARY KEY,
     owner         TEXT NOT NULL,
     learning_area TEXT NOT NULL DEFAULT '',
@@ -67,14 +67,23 @@ CREATE TABLE IF NOT EXISTS exams (
     updated_at    TEXT NOT NULL,
     body          TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_exams_owner ON exams(owner, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_exams_shelf ON exams(shared, learning_area);
+CREATE INDEX IF NOT EXISTS idx_{table}_owner ON {table}(owner, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_{table}_shelf ON {table}(shared, learning_area);
 """
+SCHEMA = SCHEMA_TEMPLATE.format(table="exams")
 # Details shown on the exam lists come straight out of the saved exam JSON (no schema change needed).
 _DETAILS = {"topic": "unit", "assessment_type": "assessment_type", "year_level": "year_level", "task": "task",
             "semester": "semester", "year": "year", "total_marks": "total_marks"}
-_SUMMARY = "exam_uid AS uid, owner, learning_area, subject, title, shared, updated_at, updated_by, " + ", ".join(
-    f"json_extract(body, '$.{path}') AS {alias}" for alias, path in _DETAILS.items())
+# Lesson plans live in their own table, stored and versioned exactly like exams.
+_PLAN_DETAILS = {"topic": "topic", "year_level": "year_level", "class_code": "class_code", "lesson_date": "lesson_date"}
+
+
+def _summary(details):
+    return "exam_uid AS uid, owner, learning_area, subject, title, shared, updated_at, updated_by, " + ", ".join(
+        f"json_extract(body, '$.{path}') AS {alias}" for alias, path in details.items())
+
+
+_SUMMARY = _summary(_DETAILS)
 _BY_RE = re.compile(r"^[a-z]{0,20}$")  # who made a save: "" for the editor, "claude" for the connector
 
 
@@ -93,15 +102,17 @@ def normalise_owner(raw):
 
 
 class ExamStore:
-    """Exams keyed by a client-minted uid, owned by a staff code."""
+    """Exams (or, with table="lesson_plans", lesson plans) keyed by a client-minted uid, owned by a staff code."""
 
-    def __init__(self, path):
+    def __init__(self, path, table="exams", details=None):
+        self.table = table
+        self._summary = _summary(details or _DETAILS)
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.executescript(SCHEMA)
-        columns = {r["name"] for r in self._conn.execute("PRAGMA table_info(exams)")}
+        self._conn.executescript(SCHEMA_TEMPLATE.format(table=table))
+        columns = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
         if "updated_by" not in columns:  # databases from before the Claude connector
-            self._conn.execute("ALTER TABLE exams ADD COLUMN updated_by TEXT NOT NULL DEFAULT ''")
+            self._conn.execute(f"ALTER TABLE {table} ADD COLUMN updated_by TEXT NOT NULL DEFAULT ''")
             self._conn.commit()
         self._lock = threading.Lock()
         self._last = None
@@ -130,7 +141,7 @@ class ExamStore:
         rather than overwrite. No base means "overwrite", which is how saves worked before.
         """
         with self._lock:
-            row = self._conn.execute("SELECT owner, updated_at, updated_by FROM exams WHERE exam_uid = ?",
+            row = self._conn.execute(f"SELECT owner, updated_at, updated_by FROM {self.table} WHERE exam_uid = ?",
                                      (uid,)).fetchone()
             if row is not None and row["owner"] != owner:
                 logger.warning("Rejected save: %s does not own exam %s", owner, uid)
@@ -139,7 +150,7 @@ class ExamStore:
                 raise Conflict(row["updated_at"], row["updated_by"])
             now = self._next_timestamp()
             self._conn.execute(
-                """INSERT INTO exams (exam_uid, owner, learning_area, subject, title, shared,
+                f"""INSERT INTO {self.table} (exam_uid, owner, learning_area, subject, title, shared,
                                       body, created_at, updated_at, updated_by)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(exam_uid) DO UPDATE SET
@@ -157,7 +168,7 @@ class ExamStore:
         """{updated_at, updated_by} of your own or a shared exam, else None. Cheap: the open editor polls it."""
         with self._lock:
             row = self._conn.execute(
-                "SELECT updated_at, updated_by FROM exams WHERE exam_uid = ? AND (owner = ? OR shared = 1)",
+                f"SELECT updated_at, updated_by FROM {self.table} WHERE exam_uid = ? AND (owner = ? OR shared = 1)",
                 (uid, owner)).fetchone()
         return dict(row) if row else None
 
@@ -166,7 +177,7 @@ class ExamStore:
         never confirms that someone else's private exam exists."""
         with self._lock:
             row = self._conn.execute(
-                f"SELECT {_SUMMARY}, body FROM exams WHERE exam_uid = ? AND (owner = ? OR shared = 1)",
+                f"SELECT {self._summary}, body FROM {self.table} WHERE exam_uid = ? AND (owner = ? OR shared = 1)",
                 (uid, owner),
             ).fetchone()
         if row is None:
@@ -178,13 +189,13 @@ class ExamStore:
     def list_for(self, owner):
         with self._lock:
             rows = self._conn.execute(
-                f"SELECT {_SUMMARY} FROM exams WHERE owner = ? ORDER BY updated_at DESC", (owner,)
+                f"SELECT {self._summary} FROM {self.table} WHERE owner = ? ORDER BY updated_at DESC", (owner,)
             ).fetchall()
         return [dict(r) for r in rows]
 
     def shelf(self, learning_area=""):
         """Exams teachers have shared with their faculty."""
-        sql = f"SELECT {_SUMMARY} FROM exams WHERE shared = 1"
+        sql = f"SELECT {self._summary} FROM {self.table} WHERE shared = 1"
         args = ()
         if learning_area:
             sql += " AND learning_area = ?"
@@ -195,13 +206,13 @@ class ExamStore:
 
     def delete(self, owner, uid):
         with self._lock:
-            cur = self._conn.execute("DELETE FROM exams WHERE exam_uid = ? AND owner = ?", (uid, owner))
+            cur = self._conn.execute(f"DELETE FROM {self.table} WHERE exam_uid = ? AND owner = ?", (uid, owner))
             self._conn.commit()
         return cur.rowcount > 0
 
     def count(self):
         with self._lock:
-            return self._conn.execute("SELECT COUNT(*) FROM exams").fetchone()[0]
+            return self._conn.execute(f"SELECT COUNT(*) FROM {self.table}").fetchone()[0]
 
     def backup(self, dest):
         dst = sqlite3.connect(str(dest))
@@ -304,8 +315,14 @@ Additional space is available at the end of the book if you need extra paper to 
 
 # How questions are written (command terms, marks, wording): Claude follows it. Schools can rewrite it in School
 # settings; until they do, the guide that ships with the app is used, so improvements to it reach every school.
-_STYLE_GUIDE_FILE = ROOT / "docs" / "question-style-guide.md"
-DEFAULT_STYLE_GUIDE = _STYLE_GUIDE_FILE.read_text(encoding="utf-8") if _STYLE_GUIDE_FILE.exists() else ""
+# The lesson plan guide works the same way.
+def _guide(name):
+    path = ROOT / "docs" / name
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+DEFAULT_STYLE_GUIDE = _guide("question-style-guide.md")
+DEFAULT_PLAN_GUIDE = _guide("lesson-plan-guide.md")
 
 DEFAULT_SETTINGS = {
     "school_name": "Your School",
@@ -320,11 +337,14 @@ DEFAULT_SETTINGS = {
     "theme_colour": "#8B0000",
     "accent_colour": "#B8860B",
     "style_guide": DEFAULT_STYLE_GUIDE,
+    "plan_guide": DEFAULT_PLAN_GUIDE,
 }
+_GUIDES = ("style_guide", "plan_guide")
 FONTS = ("Calibri, Carlito, Arial, sans-serif", "Arial, Helvetica, sans-serif", "'Segoe UI', Arial, sans-serif",
          "'Times New Roman', Times, serif", "Georgia, serif", "Verdana, sans-serif")
 _NUMBER_LIMITS = {"body_size": (8, 16), "school_name_size": (16, 48), "title_size": (14, 40), "line_spacing": (6, 14)}
-_TEXT_LIMITS = {"school_name": 120, "default_task": 120, "instructions": 5000, "notice": 1000, "style_guide": 30000}
+_TEXT_LIMITS = {"school_name": 120, "default_task": 120, "instructions": 5000, "notice": 1000, "style_guide": 30000,
+                "plan_guide": 30000}
 _COLOUR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 # Logos are checked by their first bytes, not just the declared type. SVG is refused: it can carry scripts.
 LOGO_TYPES = {"image/png": (".png", b"\x89PNG\r\n\x1a\n"), "image/jpeg": (".jpg", b"\xff\xd8\xff"), "image/webp": (".webp", b"RIFF")}
@@ -427,9 +447,10 @@ class SchoolSettings:
         with self._lock:
             data = self._read()
             data.update(clean)
-            # The built-in question guide (or an empty box) isn't stored, so the school keeps getting the latest one.
-            if "style_guide" in clean and clean["style_guide"].strip() in ("", DEFAULT_STYLE_GUIDE.strip()):
-                data.pop("style_guide", None)
+            # A built-in guide (or an empty box) isn't stored, so the school keeps getting the latest one.
+            for key in _GUIDES:
+                if key in clean and clean[key].strip() in ("", DEFAULT_SETTINGS[key].strip()):
+                    data.pop(key, None)
             self._write(data)
         return self.public()
 
@@ -463,6 +484,7 @@ class SchoolSettings:
 class Handler(SimpleHTTPRequestHandler):
     store = None     # an ExamStore, set by main() or by the tests
     settings = None  # a SchoolSettings, set by main() or by the tests
+    plans = None     # an ExamStore for lesson plans (table lesson_plans), set by main() or by the tests
     claude = ClaudeExtension()  # the Claude Desktop extension download
 
     # Windows builds this map from the registry, which sometimes has .js as text/plain.
@@ -645,19 +667,24 @@ class Handler(SimpleHTTPRequestHandler):
         if not api:
             return
         parts, owner, query = api
-        if parts == ["exams"]:
-            return self._json(self.store.list_for(owner))
+        store = self._store_for(parts)
         if parts == ["shelf"]:
             return self._json(self.store.shelf(query.get("learning_area", [""])[0]))
-        if len(parts) == 2 and parts[0] == "exams":
-            found = self.store.get(owner, parts[1])
+        if store and len(parts) == 1:
+            return self._json(store.list_for(owner))
+        if store and len(parts) == 2:
+            found = store.get(owner, parts[1])
             if found:
                 return self._json(found)
-        if len(parts) == 3 and parts[0] == "exams" and parts[2] == "version":
-            found = self.store.version(owner, parts[1])
+        if store and len(parts) == 3 and parts[2] == "version":
+            found = store.version(owner, parts[1])
             if found:
                 return self._json(found)
         self._not_found()
+
+    def _store_for(self, parts):
+        """/api/exams/… → the exams, /api/plans/… → the lesson plans."""
+        return {"exams": self.store, "plans": self.plans}.get(parts[0] if parts else "")
 
     def do_POST(self):
         if not self._settings_route("POST"):
@@ -670,7 +697,8 @@ class Handler(SimpleHTTPRequestHandler):
         if not api:
             return None if api is False else self._not_found()
         parts, owner, query = api
-        if len(parts) != 2 or parts[0] != "exams" or not _UID_RE.match(parts[1]):
+        store = self._store_for(parts)
+        if len(parts) != 2 or not store or not _UID_RE.match(parts[1]):
             return self._json({"error": "Bad exam id."}, 400)
         by = query.get("by", [""])[0]
         if not _BY_RE.match(by):
@@ -679,7 +707,7 @@ class Handler(SimpleHTTPRequestHandler):
         if exam is None:
             return
         try:
-            saved = self.store.save(owner, parts[1], exam, base=query.get("base", [""])[0], by=by)
+            saved = store.save(owner, parts[1], exam, base=query.get("base", [""])[0], by=by)
         except Conflict as c:
             return self._json({"error": "This exam was changed somewhere else since you opened it.",
                                "updated_at": c.updated_at, "updated_by": c.updated_by}, 409)
@@ -694,7 +722,8 @@ class Handler(SimpleHTTPRequestHandler):
         if not api:
             return None if api is False else self._not_found()
         parts, owner, _ = api
-        if len(parts) == 2 and parts[0] == "exams" and self.store.delete(owner, parts[1]):
+        store = self._store_for(parts)
+        if len(parts) == 2 and store and store.delete(owner, parts[1]):
             return self._json({"ok": True})
         self._not_found()
 
@@ -703,6 +732,7 @@ def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 7900
     DATA.mkdir(exist_ok=True)
     Handler.store = ExamStore(DATA / "exams.db")
+    Handler.plans = ExamStore(DATA / "exams.db", table="lesson_plans", details=_PLAN_DETAILS)
     Handler.settings = SchoolSettings(DATA)
     Handler.claude = ClaudeExtension()
     backup_on_startup(Handler.store, DATA / "backups")

@@ -34,6 +34,7 @@ app.logging.disable(app.logging.CRITICAL)
 app.Handler.log_message = lambda *args: None
 _tmp = Path(tempfile.mkdtemp())
 app.Handler.store = app.ExamStore(_tmp / "exams.db")
+app.Handler.plans = app.ExamStore(_tmp / "exams.db", table="lesson_plans", details=app._PLAN_DETAILS)
 app.Handler.settings = app.SchoolSettings(_tmp)
 _httpd = app.ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
 threading.Thread(target=_httpd.serve_forever, daemon=True).start()
@@ -105,7 +106,7 @@ class SchoolModeTests(unittest.TestCase):
             async with Client(connector.mcp) as c:
                 return [t.name for t in (await c.list_tools()).tools]
         self.assertEqual(asyncio.run(go()), ["get_exam_format", "list_exams", "get_exam", "create_exam", "edit_exam",
-                                             "restore_version"])
+                                             "restore_version", *PLAN_TOOLS])
 
     def test_staff_code_is_required(self):
         del os.environ["STAFF_CODE"]
@@ -375,6 +376,122 @@ class SchoolModeTests(unittest.TestCase):
 
 
 LINES = {"type": "lines", "n": 2}
+PLAN_TOOLS = ["get_lesson_plan_format", "list_lesson_plans", "get_lesson_plan", "create_lesson_plan",
+              "edit_lesson_plan", "restore_lesson_plan"]
+L_TEXT = ("**Learning Intentions**\nTo complete the square for $x^2 + bx + c$.\n**Success Criteria**\n"
+          "- I can expand $(x+3)^2$\n**Do Now**\nExpand $(x+2)^2$.")
+
+
+class LessonPlanTests(unittest.TestCase):
+    setUp, tearDown, call = SchoolModeTests.setUp, SchoolModeTests.tearDown, SchoolModeTests.call
+
+    def plan(self, **sections):
+        r = self.call("create_lesson_plan", details={"class_code": "10MM1", "topic": "Completing the square",
+                                                     "lesson_date": "2026-10-14"}, sections=sections or {"L": L_TEXT})
+        self.assertTrue(r["ok"], r)
+        return r["plan_id"]
+
+    def saved_plan(self, uid, owner="ABC"):
+        return http("GET", f"plans/{uid}", owner=owner)
+
+    def test_create_saves_a_plan_the_page_can_open(self):
+        uid = self.plan()
+        saved = self.saved_plan(uid)
+        self.assertEqual((saved["owner"], saved["updated_by"], saved["title"]), ("ABC", "claude", "10MM1 · Completing the square"))
+        plan = saved["exam"]
+        self.assertEqual(set(plan["sections"]), set("LEARN"))
+        self.assertEqual((plan["sections"]["L"], plan["sections"]["E"], plan["subject"]), (L_TEXT, "", ""))
+        self.assertNotIn(uid, [r["uid"] for r in http("GET", "exams", owner="ABC")])  # never among the exams
+        listed = self.call("list_lesson_plans")["lesson_plans"]
+        self.assertEqual((listed[0]["plan_id"], listed[0]["lesson_date"]), (uid, "2026-10-14"))
+        r = self.call("get_lesson_plan", plan_id=uid)
+        self.assertEqual(r["editor_link"], f"http://8801-openai-01:7900/plans.html#plan={uid}")
+        self.assertIn("## E: Explain\n(empty)", r["plan"])
+
+    def test_edit_replaces_only_the_sections_given(self):
+        uid = self.plan()
+        r = self.call("edit_lesson_plan", plan_id=uid, sections={"E": "**Square**\nA *perfect square* is $(x+a)^2$."},
+                      details={"year_level": "10"})
+        self.assertTrue(r["ok"], r)
+        plan = self.saved_plan(uid)["exam"]
+        self.assertEqual((plan["sections"]["L"], plan["year_level"]), (L_TEXT, "10"))
+        self.assertTrue(plan["sections"]["E"].startswith("**Square**"))
+        self.assertIn("give the sections", self.call("edit_lesson_plan", plan_id=uid)["tool_error"].lower())
+
+    def test_formatting_that_would_break_compass_is_refused(self):
+        uid = self.plan()
+        for text, expect in [("Cost is $5 each", "unpaired $"), (r"Use $\\frac{1}{2}$", "doubled backslash"),
+                             (r"Area is \\frac12 bh", "doubled backslash"), (r"Area is \frac{1}{2}bh", "outside $"),
+                             ("$$\nx^2\n$$", "same line"), ("## Explain", "no # headings"),
+                             ("- a\n  - b", "no indenting")]:
+            r = self.call("edit_lesson_plan", plan_id=uid, sections={"E": text})
+            self.assertFalse(r["ok"], text)
+            self.assertIn(expect, " ".join(r["errors"]), text)
+        self.assertEqual(self.saved_plan(uid)["exam"]["sections"]["E"], "")
+        self.assertFalse(self.call("edit_lesson_plan", plan_id=uid, sections={"X": "hi"})["ok"])
+        self.assertFalse(self.call("edit_lesson_plan", plan_id=uid, details={"lesson_date": "14/10"})["ok"])
+        ok = self.call("edit_lesson_plan", plan_id=uid, sections={"E": "Costs \\$12.50; $\\frac{1}{2}$ off."})
+        self.assertTrue(ok["ok"], ok)
+
+    def test_guide_warnings(self):
+        uid = self.plan()
+        r = self.call("edit_lesson_plan", plan_id=uid, sections={
+            "L": "To learn", "R": "- one", "E": "$A = \\frac12 ab = \\frac12 (5)(7) = 17.5 = 18$"})
+        self.assertTrue(r["ok"])
+        warnings = " ".join(r["warnings"])
+        for expect in ("Learning Intentions", "two bullet", "chains several steps"):
+            self.assertIn(expect, warnings)
+
+    def test_a_save_in_between_is_merged_not_lost(self):
+        uid = self.plan()
+        real_put, sneaked = connector.school.server.put, []
+
+        def teacher_saves_first(owner, uid_, plan, base, kind="exams"):
+            if not sneaked:
+                current = http("GET", f"plans/{uid_}", owner=owner)
+                current["exam"]["sections"]["A"] = "teacher typed this"
+                http("PUT", f"plans/{uid_}", current["exam"], owner=owner, base=current["updated_at"])
+                sneaked.append(True)
+            return real_put(owner, uid_, plan, base, kind=kind)
+
+        connector.school.server.put = teacher_saves_first
+        try:
+            r = self.call("edit_lesson_plan", plan_id=uid, sections={"E": "Claude's"})
+        finally:
+            connector.school.server.put = real_put
+        self.assertTrue(r["ok"], r)
+        sections = self.saved_plan(uid)["exam"]["sections"]
+        self.assertEqual((sections["E"], sections["A"]), ("Claude's", "teacher typed this"))
+
+    def test_another_teachers_plan(self):
+        http("PUT", "plans/theirs-plan1", {"topic": "Theirs", "sections": {"L": "x"}}, owner="XYZ")
+        self.assertIn("no lesson plan", self.call("get_lesson_plan", plan_id="theirs-plan1")["tool_error"])
+        self.assertIn("no lesson plan", self.call("edit_lesson_plan", plan_id="theirs-plan1",
+                                                  sections={"L": "mine"})["tool_error"])
+        self.assertEqual(http("GET", "plans/theirs-plan1", owner="XYZ")["exam"]["sections"]["L"], "x")
+
+    def test_claude_gets_the_schools_plan_guide(self):
+        self.assertIn("**Learning Intentions**", self.call("get_lesson_plan_format")["result"])
+        http("POST", "settings/pin", {"pin": "1234"})
+        put = lambda v: urllib.request.urlopen(urllib.request.Request(  # noqa: E731
+            f"{EXAM_SERVER}/api/settings", method="PUT", data=json.dumps({"plan_guide": v}).encode(),
+            headers={"Content-Type": "application/json", "X-Admin-PIN": "1234"})).close()
+        put("Our Do Now is always three questions.")
+        text = self.call("get_lesson_plan_format")["result"]
+        self.assertIn("Our Do Now is always three questions.", text)
+        self.assertIn("# Lesson plans", text)
+        self.assertNotIn("**Learning Intentions**", text)
+        put("")
+
+    def test_restore_lesson_plan(self):
+        uid = self.plan()
+        self.call("edit_lesson_plan", plan_id=uid, sections={"E": "first"})
+        self.call("edit_lesson_plan", plan_id=uid, sections={"E": "second"})
+        self.assertTrue(self.call("restore_lesson_plan", plan_id=uid)["ok"])
+        self.assertEqual(self.saved_plan(uid)["exam"]["sections"]["E"], "first")
+        self.call("restore_lesson_plan", plan_id=uid, steps=3)
+        self.assertEqual(self.saved_plan(uid)["exam"]["sections"]["E"], "")
+        self.assertIn("Only", self.call("restore_lesson_plan", plan_id=uid, steps=30)["tool_error"])
 
 if __name__ == "__main__":
     unittest.main()

@@ -65,30 +65,34 @@ class ExamServer:
         status, body = self._call("GET", "settings")
         return body if status == 200 and isinstance(body, dict) else {}
 
-    def list(self, owner: str) -> list[dict]:
-        status, body = self._call("GET", "exams", owner=owner)
+    # kind: "exams", or "plans" for lesson plans (stored and versioned the same way).
+    def list(self, owner: str, kind: str = "exams") -> list[dict]:
+        status, body = self._call("GET", kind, owner=owner)
         if status != 200:
-            raise SchoolError((body or {}).get("error") or f"Couldn't list exams (HTTP {status}).")
+            raise SchoolError((body or {}).get("error") or f"Couldn't list {_NOUN[kind]}s (HTTP {status}).")
         return body
 
-    def get(self, owner: str, uid: str) -> dict | None:
-        status, body = self._call("GET", f"exams/{urllib.parse.quote(uid)}", owner=owner)
+    def get(self, owner: str, uid: str, kind: str = "exams") -> dict | None:
+        status, body = self._call("GET", f"{kind}/{urllib.parse.quote(uid)}", owner=owner)
         if status == 404:
             return None
         if status != 200:
-            raise SchoolError((body or {}).get("error") or f"Couldn't open the exam (HTTP {status}).")
+            raise SchoolError((body or {}).get("error") or f"Couldn't open the {_NOUN[kind]} (HTTP {status}).")
         return body
 
-    def put(self, owner: str, uid: str, exam: dict, base: str | None) -> str:
+    def put(self, owner: str, uid: str, exam: dict, base: str | None, kind: str = "exams") -> str:
         query = {"owner": owner, "by": "claude", **({"base": base} if base else {})}
-        status, body = self._call("PUT", f"exams/{urllib.parse.quote(uid)}", exam, **query)
+        status, body = self._call("PUT", f"{kind}/{urllib.parse.quote(uid)}", exam, **query)
         if status == 409:
             raise Conflict()
         if status == 404:
-            raise SchoolError("That exam belongs to another teacher, so it can't be changed.")
+            raise SchoolError(f"That {_NOUN[kind]} belongs to another teacher, so it can't be changed.")
         if status != 200:
-            raise SchoolError((body or {}).get("error") or f"Couldn't save the exam (HTTP {status}).")
+            raise SchoolError((body or {}).get("error") or f"Couldn't save the {_NOUN[kind]} (HTTP {status}).")
         return body["updated_at"]
+
+
+_NOUN = {"exams": "exam", "plans": "lesson plan"}
 
 
 # ------------------------------------------------------------------ versions kept before each change

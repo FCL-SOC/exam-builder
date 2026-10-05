@@ -26,13 +26,14 @@ jobs:
         run: python -m unittest discover tests
       - name: Connector tests
         run: python -m unittest discover connector/tests
-      - name: In a real browser - links open (demo and school server), live updates and merging
+      - name: In a real browser - links open (demo and school server), live updates and merging, lesson plans
         run: |
-          pip install playwright
+          pip install playwright python-docx
           python -m playwright install --with-deps chromium
           python tests/browser_check.py
           python tests/browser_check.py --server
           python tests/live_check.py
           python tests/school_check.py
+          python tests/plans_check.py
       - name: Docker image builds
         run: docker build -f connector/Dockerfile -t exam-connector .

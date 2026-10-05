@@ -73,6 +73,13 @@ The exam format is documented in [docs/exam-format.md](docs/exam-format.md) and
 
 In text, write money as `\$12.50`: a bare `$` starts maths.
 
+## Lesson plans
+
+**Lesson plans** (top of the exam list) keeps LEARN-framework lesson plans per staff code: class, date, topic and
+the five sections, with **Copy for Compass** (paste straight into a Compass lesson plan, maths included) and
+**Download Word**. Claude writes and edits them through the same connector, following the school's lesson plan guide
+(Victorian Curriculum 2.0), and the page updates live as it does.
+
 ## Your data
 
 | Path | What it is |
