@@ -1,11 +1,13 @@
 """Run: python -m unittest discover tests   (standard library only)"""
 
 import json
+import sqlite3
 import sys
 import tempfile
 import threading
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -81,6 +83,38 @@ class StoreTests(unittest.TestCase):
         for _ in range(3):
             server.backup_on_startup(self.store, bdir, keep=2)
         self.assertEqual(len(list(bdir.glob("exams-*.db"))), 2)
+
+    def test_save_from_an_old_version_is_refused(self):
+        v1 = self.store.save("ABC", "exam-0001", {"title": "v1"})
+        v2 = self.store.save("ABC", "exam-0001", {"title": "v2"}, base=v1, by="claude")
+        self.assertGreater(v2, v1)
+        with self.assertRaises(server.Conflict) as caught:
+            self.store.save("ABC", "exam-0001", {"title": "stale"}, base=v1)
+        self.assertEqual((caught.exception.updated_at, caught.exception.updated_by), (v2, "claude"))
+        self.assertEqual(self.store.get("ABC", "exam-0001")["exam"]["title"], "v2")
+        self.assertTrue(self.store.save("ABC", "exam-0001", {"title": "forced"}))  # no base: overwrite, as before
+        self.assertTrue(self.store.save("ABC", "exam-0002", {"title": "new"}, base="anything"))  # nothing to clash with
+
+    def test_version(self):
+        stamp = self.store.save("ABC", "exam-0001", {"title": "x"}, by="claude")
+        self.assertEqual(self.store.version("ABC", "exam-0001"), {"updated_at": stamp, "updated_by": "claude"})
+        self.assertIsNone(self.store.version("XYZ", "exam-0001"))
+        self.store.save("ABC", "exam-0001", {"title": "x"})
+        self.assertEqual(self.store.version("ABC", "exam-0001")["updated_by"], "")
+        self.assertEqual(self.store.list_for("ABC")[0]["updated_by"], "")
+
+    def test_database_from_before_updated_by_is_migrated(self):
+        old = self.dir / "old.db"
+        conn = sqlite3.connect(old)
+        conn.executescript(server.SCHEMA)
+        conn.execute("INSERT INTO exams (exam_uid, owner, title, created_at, updated_at, body) "
+                     "VALUES ('exam-0001', 'ABC', 'T', 't', 't', '{}')")
+        conn.commit()
+        conn.close()
+        store = server.ExamStore(old)
+        self.assertEqual(store.version("ABC", "exam-0001"), {"updated_at": "t", "updated_by": ""})
+        store._conn.close()
+        server.ExamStore(old)._conn.close()  # opening it again doesn't try to add the column twice
 
 
 class SettingsTests(unittest.TestCase):
@@ -185,6 +219,20 @@ class HttpTests(unittest.TestCase):
     def test_bad_uid_and_body_rejected(self):
         self.assertEqual(self.call("PUT", "/api/exams/..%2Fescape?owner=ABC", {"a": 1})[0], 400)
         self.assertEqual(self.call("PUT", "/api/exams/exam-0001?owner=ABC", [1, 2])[0], 400)
+
+    def test_saves_carry_versions(self):
+        status, first = self.call("PUT", "/api/exams/exam-0001?owner=ABC", {"title": "v1"})
+        self.assertEqual(status, 200)
+        v1 = urllib.parse.quote(first["updated_at"])
+        status, second = self.call("PUT", f"/api/exams/exam-0001?owner=ABC&base={v1}&by=claude", {"title": "v2"})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.call("GET", "/api/exams/exam-0001/version?owner=ABC"),
+                         (200, {"updated_at": second["updated_at"], "updated_by": "claude"}))
+        status, clash = self.call("PUT", f"/api/exams/exam-0001?owner=ABC&base={v1}", {"title": "stale"})
+        self.assertEqual((status, clash["updated_at"], clash["updated_by"]), (409, second["updated_at"], "claude"))
+        self.assertEqual(self.call("GET", "/api/exams/exam-0001?owner=ABC")[1]["exam"]["title"], "v2")
+        self.assertEqual(self.call("GET", "/api/exams/exam-0001/version?owner=XYZ")[0], 404)
+        self.assertEqual(self.call("PUT", "/api/exams/exam-0001?owner=ABC&by=Robot!", {"title": "x"})[0], 400)
 
     def test_serves_frontend(self):
         with urllib.request.urlopen(self.base + "/") as r:

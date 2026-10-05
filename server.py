@@ -64,8 +64,17 @@ CREATE INDEX IF NOT EXISTS idx_exams_shelf ON exams(shared, learning_area);
 # Details shown on the exam lists come straight out of the saved exam JSON (no schema change needed).
 _DETAILS = {"topic": "unit", "assessment_type": "assessment_type", "year_level": "year_level", "task": "task",
             "semester": "semester", "year": "year", "total_marks": "total_marks"}
-_SUMMARY = "exam_uid AS uid, owner, learning_area, subject, title, shared, updated_at, " + ", ".join(
+_SUMMARY = "exam_uid AS uid, owner, learning_area, subject, title, shared, updated_at, updated_by, " + ", ".join(
     f"json_extract(body, '$.{path}') AS {alias}" for alias, path in _DETAILS.items())
+_BY_RE = re.compile(r"^[a-z]{0,20}$")  # who made a save: "" for the editor, "claude" for the connector
+
+
+class Conflict(Exception):
+    """A save based on an older version than the one stored: someone else saved in between."""
+
+    def __init__(self, updated_at, updated_by):
+        super().__init__(updated_at)
+        self.updated_at, self.updated_by = updated_at, updated_by
 
 
 def normalise_owner(raw):
@@ -81,6 +90,10 @@ class ExamStore:
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA)
+        columns = {r["name"] for r in self._conn.execute("PRAGMA table_info(exams)")}
+        if "updated_by" not in columns:  # databases from before the Claude connector
+            self._conn.execute("ALTER TABLE exams ADD COLUMN updated_by TEXT NOT NULL DEFAULT ''")
+            self._conn.commit()
         self._lock = threading.Lock()
         self._last = None
 
@@ -98,29 +111,46 @@ class ExamStore:
         self._last = now
         return now.isoformat(timespec="microseconds")
 
-    def save(self, owner, uid, exam):
-        """Upsert. False if the uid belongs to another teacher — a colliding uid
-        must never silently move an exam between teachers."""
+    def save(self, owner, uid, exam, base=None, by=""):
+        """
+        Upsert; returns the new updated_at. False if the uid belongs to another teacher — a colliding uid
+        must never silently move an exam between teachers.
+
+        `base` is the updated_at the change was made from. If the stored exam has moved on since (another
+        tab, or Claude, saved in between), nothing is written and Conflict is raised, so the caller can merge
+        rather than overwrite. No base means "overwrite", which is how saves worked before.
+        """
         with self._lock:
-            row = self._conn.execute("SELECT owner FROM exams WHERE exam_uid = ?", (uid,)).fetchone()
+            row = self._conn.execute("SELECT owner, updated_at, updated_by FROM exams WHERE exam_uid = ?",
+                                     (uid,)).fetchone()
             if row is not None and row["owner"] != owner:
                 logger.warning("Rejected save: %s does not own exam %s", owner, uid)
                 return False
+            if base and row is not None and row["updated_at"] != base:
+                raise Conflict(row["updated_at"], row["updated_by"])
             now = self._next_timestamp()
             self._conn.execute(
                 """INSERT INTO exams (exam_uid, owner, learning_area, subject, title, shared,
-                                      body, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                      body, created_at, updated_at, updated_by)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(exam_uid) DO UPDATE SET
                      learning_area = excluded.learning_area, subject = excluded.subject,
                      title = excluded.title, shared = excluded.shared,
-                     body = excluded.body, updated_at = excluded.updated_at""",
+                     body = excluded.body, updated_at = excluded.updated_at, updated_by = excluded.updated_by""",
                 (uid, owner, str(exam.get("learning_area") or ""), str(exam.get("subject") or ""),
                  str(exam.get("title") or ""), 1 if exam.get("shared") else 0,
-                 json.dumps(exam), now, now),
+                 json.dumps(exam), now, now, by),
             )
             self._conn.commit()
-            return True
+            return now
+
+    def version(self, owner, uid):
+        """{updated_at, updated_by} of your own or a shared exam, else None. Cheap: the open editor polls it."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT updated_at, updated_by FROM exams WHERE exam_uid = ? AND (owner = ? OR shared = 1)",
+                (uid, owner)).fetchone()
+        return dict(row) if row else None
 
     def get(self, owner, uid):
         """Your own exam, or anyone's shared one. None otherwise, so the API
@@ -539,6 +569,10 @@ class Handler(SimpleHTTPRequestHandler):
             found = self.store.get(owner, parts[1])
             if found:
                 return self._json(found)
+        if len(parts) == 3 and parts[0] == "exams" and parts[2] == "version":
+            found = self.store.version(owner, parts[1])
+            if found:
+                return self._json(found)
         self._not_found()
 
     def do_POST(self):
@@ -551,15 +585,23 @@ class Handler(SimpleHTTPRequestHandler):
         api = self._api()
         if not api:
             return None if api is False else self._not_found()
-        parts, owner, _ = api
+        parts, owner, query = api
         if len(parts) != 2 or parts[0] != "exams" or not _UID_RE.match(parts[1]):
             return self._json({"error": "Bad exam id."}, 400)
+        by = query.get("by", [""])[0]
+        if not _BY_RE.match(by):
+            return self._json({"error": "Bad 'by'."}, 400)
         exam = self._read_json()
         if exam is None:
             return
-        if not self.store.save(owner, parts[1], exam):
+        try:
+            saved = self.store.save(owner, parts[1], exam, base=query.get("base", [""])[0], by=by)
+        except Conflict as c:
+            return self._json({"error": "This exam was changed somewhere else since you opened it.",
+                               "updated_at": c.updated_at, "updated_by": c.updated_by}, 409)
+        if not saved:
             return self._not_found()
-        self._json({"ok": True})
+        self._json({"ok": True, "updated_at": saved})
 
     def do_DELETE(self):
         if self._settings_route("DELETE"):

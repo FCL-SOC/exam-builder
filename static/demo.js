@@ -13,7 +13,7 @@
   const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
   const summary = (uid, r) => ({
     uid, owner: r.owner, learning_area: r.exam.learning_area || "", subject: r.exam.subject || "", title: r.exam.title || "",
-    shared: r.exam.shared ? 1 : 0, updated_at: r.updated_at, topic: r.exam.unit ?? null, assessment_type: r.exam.assessment_type ?? null,
+    shared: r.exam.shared ? 1 : 0, updated_at: r.updated_at, updated_by: r.updated_by || "", topic: r.exam.unit ?? null, assessment_type: r.exam.assessment_type ?? null,
     year_level: r.exam.year_level ?? null, task: r.exam.task ?? null, semester: r.exam.semester ?? null, year: r.exam.year ?? null,
     total_marks: r.exam.total_marks ?? null,
   });
@@ -23,7 +23,7 @@
     const url = new URL(typeof input === "string" ? input : input.url, location.href);
     const at = url.pathname.indexOf("/api/");
     if (at < 0) return realFetch(input, opts);
-    const [area, id] = url.pathname.slice(at + 5).split("/");
+    const [area, id, sub] = url.pathname.slice(at + 5).split("/");
     const method = (opts.method || "GET").toUpperCase();
 
     if (area === "settings") {
@@ -51,11 +51,18 @@
     }
     if (area === "exams") {
       const r = exams.get(id), notFound = json({ error: "Exam not found." }, 404);
-      if (method === "GET") return r && (r.owner === owner || r.exam.shared) ? json({ ...summary(id, r), exam: structuredClone(r.exam) }) : notFound;
+      const visible = r && (r.owner === owner || r.exam.shared);
+      if (method === "GET" && sub === "version") return visible ? json({ updated_at: r.updated_at, updated_by: r.updated_by || "" }) : notFound;
+      if (method === "GET") return visible ? json({ ...summary(id, r), exam: structuredClone(r.exam) }) : notFound;
       if (method === "PUT") {
         if (r && r.owner !== owner) return notFound;
-        exams.set(id, { owner, exam: JSON.parse(opts.body), updated_at: now() });
-        return json({ ok: true });
+        const base = url.searchParams.get("base");  // as server.py: a save from an older version is refused
+        if (base && r && r.updated_at !== base) {
+          return json({ error: "This exam was changed somewhere else since you opened it.", updated_at: r.updated_at, updated_by: r.updated_by || "" }, 409);
+        }
+        const updated_at = now();
+        exams.set(id, { owner, exam: JSON.parse(opts.body), updated_at, updated_by: url.searchParams.get("by") || "" });
+        return json({ ok: true, updated_at });
       }
       if (method === "DELETE") {
         if (!r || r.owner !== owner) return notFound;
