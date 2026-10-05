@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson plans · Exam Assistant</title>
+<link rel="stylesheet" href="mathlive/mathlive-static.css">
+<link rel="stylesheet" href="mathlive/mathlive-fonts.css">
+<script src="mathlive/mathlive.min.js"></script>
+<script src="demo.js"></script>
+<style>
+  :root { --red: #8B0000; --gold: #B8860B; --border: #D0C8BC; --radius: 6px; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; }
+  body { font: 14px 'Segoe UI', Arial, sans-serif; background: #EFEFEF; color: #222; }
+  button { font: inherit; border: 1px solid var(--border); background: #fff; border-radius: var(--radius); padding: 5px 12px; cursor: pointer; }
+  button:hover { border-color: var(--red); }
+  button.primary { background: var(--red); color: #fff; border-color: var(--red); }
+  button.danger { color: var(--red); }
+  button:disabled { opacity: .5; cursor: default; }
+  input, select { font: inherit; border: 1px solid var(--border); border-radius: 4px; padding: 5px 7px; background: #fff; }
+  #topbar { background: var(--red); color: #fff; display: flex; align-items: center; gap: 10px; padding: 6px 16px; }
+  #topbar h1 { font-size: 17px; margin: 0; flex: 1; }
+  #topbar a { color: #fff; }
+  #code { width: 54px; text-transform: uppercase; text-align: center; font-weight: 600; }
+  #status { font-size: 13px; opacity: .9; }
+  #status.error { color: #FFD7D7; font-weight: 600; }
+  main { max-width: 980px; margin: 18px auto; padding: 0 16px; }
+  .note { color: #666; font-size: 13px; }
+  .bad { color: var(--red); }
+  .row { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; margin: 6px 0; }
+  .row .t { flex: 1; } .row .details { color: #666; font-size: 13px; }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .grow { flex: 1; }
+  .details-form { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 12px; }
+  .details-form label { display: flex; flex-direction: column; font-size: 12px; color: #555; gap: 3px; }
+  table.learn { width: 100%; border-collapse: collapse; background: #fff; }
+  table.learn td { border: 1px solid #999; vertical-align: top; padding: 8px 10px; }
+  table.learn td.letter { width: 44px; text-align: center; vertical-align: middle; font-size: 22px; font-weight: 700; color: var(--red); }
+  table.learn td.name { width: 120px; vertical-align: middle; font-weight: 700; }
+  table.learn td.logo { padding: 8px 10px; }
+  table.learn td.logo img { max-height: 56px; }
+  table.learn td.logo .school { font-size: 18px; font-weight: 700; color: var(--red); }
+  .content { min-height: 2.2em; cursor: text; line-height: 1.45; }
+  .content:hover { outline: 1px dashed #bbb; outline-offset: 3px; }
+  .content p { margin: 0 0 4px; } .content ul, .content ol { margin: 2px 0 6px; padding-left: 22px; }
+  .content .empty { color: #aaa; font-style: italic; }
+  .content .display { display: block; text-align: center; margin: 4px 0; }
+  .content img { max-width: 100%; }
+  textarea.edit { width: 100%; box-sizing: border-box; min-height: 9em; font: 13px Consolas, 'Courier New', monospace; border: 1px solid var(--red); border-radius: 4px; padding: 6px; }
+  tr.remote-change td.content-cell { animation: remote-change 3s ease-out; }
+  @keyframes remote-change { from { background: #FFF3C4; } to { background: #fff; } }
+  .hint { font-size: 12px; color: #777; margin-top: 8px; }
+</style>
+</head>
+<body>
+<header id="topbar">
+  <h1>Lesson plans</h1>
+  <a href="./">Exams</a>
+  <label for="code">Staff code</label>
+  <input id="code" maxlength="3" autocomplete="off" placeholder="ABC">
+  <span id="status"></span>
+</header>
+
+<main id="home">
+  <div class="bar">
+    <span class="grow note">Ask Claude to plan a lesson, or start one here. Plans are private to your staff code.</span>
+    <button id="new-btn" class="primary">+ New lesson plan</button>
+  </div>
+  <div id="home-list"></div>
+</main>
+
+<main id="editor" hidden>
+  <div class="bar">
+    <button id="back-btn">← My lesson plans</button>
+    <button id="undo-btn" disabled>↶ Undo</button>
+    <span class="grow"></span>
+    <button id="copy-btn" class="primary" title="Copy the plan, then paste it into a Compass lesson plan">Copy for Compass</button>
+    <button id="word-btn" title="Download as a Word document">Download Word</button>
+  </div>
+  <div class="details-form">
+    <label>Class <input data-field="class_code" placeholder="10MM1"></label>
+    <label>Subject <input data-field="subject" placeholder="Mathematics"></label>
+    <label>Year level <input data-field="year_level" placeholder="10"></label>
+    <label>Topic <input data-field="topic" placeholder="Completing the square"></label>
+    <label>Date <input data-field="lesson_date" type="date"></label>
+  </div>
+  <table class="learn"><tbody id="learn"></tbody></table>
+  <p class="hint">Click a section to change it. <b>**bold**</b>, <i>*italic*</i>, a line starting with "- " is a bullet,
+    "1. " is numbered, and $x^2$ is maths.</p>
+</main>
+
+<script>
+// ---------------------------------------------------------------- the LEARN framework
+const SECTIONS = [["L", "Learning Clarity"], ["E", "Explain"], ["A", "Application"], ["R", "Reflect"], ["N", "Next Steps"]];
+const DETAILS = ["class_code", "subject", "year_level", "topic", "lesson_date"];
+const blankPlan = () => ({ class_code: "", subject: "", year_level: "", topic: "", lesson_date: "",
+  sections: Object.fromEntries(SECTIONS.map(([k]) => [k, ""])) });
+const planTitle = p => [p.class_code, p.topic].filter(Boolean).join(" · ") || "Untitled lesson plan";
+
+// ---------------------------------------------------------------- state
+let code = "", uid = null, plan = null, version = null, baseJson = null;
+let saving = false, dirty = false, saveTimer = null, pulling = false, notice = "", editing = null;
+let undoStack = [], settings = { school_name: "Your School", has_logo: false };
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const normalise = s => /^[A-Za-z]{3}$/.test((s || "").trim()) ? s.trim().toUpperCase() : "";
+const newUid = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, "0")).join("");
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function setStatus(text, error = false) { $("#status").textContent = text; $("#status").className = error ? "error" : ""; }
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.error || `HTTP ${r.status}`), { status: r.status });
+  return j;
+}
+
+// ---------------------------------------------------------------- the plan's small markdown (as LP-Generator)
+// **bold**, *italic*, "- " bullets and "1. " numbered lines at the start of a line, $maths$, $$display maths$$,
+// [label](url) and ![alt](url). Everything else is plain text.
+function tex(latex, display) {
+  try { return MathLive.convertLatexToMarkup(display ? "\\displaystyle " + latex : latex); } catch { return esc(latex); }
+}
+function inline(text) {
+  const out = [];
+  for (const [i, part] of String(text).split(/(\$\$[^$]+\$\$|\$[^$]+\$)/).entries()) {
+    if (i % 2) { out.push(part.startsWith("$$") ? `<span class="display">${tex(part.slice(2, -2), true)}</span>` : tex(part.slice(1, -1))); continue; }
+    out.push(esc(part)
+      .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+|\/[^)\s]*)\)/g, '<img alt="$1" src="$2">')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+      .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<i>$2</i>"));
+  }
+  return out.join("");
+}
+function renderMarkdown(text) {
+  if (!String(text || "").trim()) return '<span class="empty">Click to write this section</span>';
+  const html = [];
+  let list = null;
+  const close = () => { if (list) { html.push(`</${list}>`); list = null; } };
+  for (const line of String(text).split("\n")) {
+    const bullet = line.match(/^-\s+(.*)$/), numbered = line.match(/^\d+\.\s+(.*)$/);
+    const kind = bullet ? "ul" : numbered ? "ol" : null;
+    if (kind) {
+      if (list !== kind) { close(); html.push(`<${kind}>`); list = kind; }
+      html.push(`<li>${inline((bullet || numbered)[1])}</li>`);
+    } else {
+      close();
+      if (line.trim()) html.push(`<p>${inline(line)}</p>`);
+    }
+  }
+  close();
+  return html.join("");
+}
+
+// ---------------------------------------------------------------- merging (another window, or Claude)
+// Field by field: details and each LEARN section. Both changed the same one: the teacher's version wins.
+function mergePlan(base, mine, theirs) {
+  const report = { changed: new Set(), conflicts: 0 };
+  const merge = (b, m, t, key, label) => {
+    if (same(m[key], t[key]) || same(t[key], b[key])) return;
+    if (same(m[key], b[key])) { m[key] = t[key]; report.changed.add(label); } else report.conflicts++;
+  };
+  for (const k of DETAILS) merge(base, mine, theirs, k, "details");
+  base.sections ||= {}; mine.sections ||= {}; theirs.sections ||= {};
+  for (const [k] of SECTIONS) merge(base.sections, mine.sections, theirs.sections, k, k);
+  return report;
+}
+
+// ---------------------------------------------------------------- saving
+function changed(track = true) {
+  if (track) { pushUndo(); notice = ""; }
+  dirty = true;
+  setStatus("Unsaved changes…");
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(save, 800);
+}
+async function save() {
+  if (!dirty) return;
+  if (saving) { saveTimer = setTimeout(save, 400); return; }
+  saving = true; dirty = false;
+  plan.title = planTitle(plan);
+  const body = JSON.stringify(plan), savingUid = uid;
+  let clash = false;
+  try {
+    const r = await api(`/api/plans/${uid}?owner=${code}${version ? `&base=${encodeURIComponent(version)}` : ""}`,
+      { method: "PUT", headers: { "Content-Type": "application/json" }, body });
+    if (savingUid === uid) { version = r.updated_at; baseJson = body; }
+    if (!dirty) setStatus(notice ? `Saved · ${notice}` : "Saved");
+  } catch (e) {
+    dirty = true;
+    if (e.status === 409) clash = true;
+    else { setStatus(`Not saved yet — trying again (${e.message})`, true); saveTimer = setTimeout(save, 5000); }
+  } finally { saving = false; }
+  if (clash) { clearTimeout(saveTimer); saveTimer = setTimeout(save, 3000); await pullRemote(); }
+}
+addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+function pushUndo() {
+  const snap = baseJson && JSON.stringify(plan);
+  if (snap && undoStack.at(-1) !== snap) undoStack.push(snap);
+  if (undoStack.length > 100) undoStack.shift();
+  $("#undo-btn").disabled = !undoStack.length;
+}
+$("#undo-btn").onclick = () => {
+  if (!undoStack.length) return;
+  plan = JSON.parse(undoStack.pop());
+  $("#undo-btn").disabled = !undoStack.length;
+  editing = null;
+  renderEditor();
+  changed(false);
+};
+
+async function pullRemote() {
+  if (pulling || !uid || !plan) return;
+  pulling = true;
+  const openUid = uid;
+  try {
+    const r = await api(`/api/plans/${uid}?owner=${code}`);
+    if (uid !== openUid || r.updated_at === version) return;
+    const theirs = { ...blankPlan(), ...r.exam };
+    const before = JSON.stringify(plan);
+    const report = mergePlan(baseJson ? JSON.parse(baseJson) : theirs, plan, theirs);
+    version = r.updated_at; baseJson = JSON.stringify(r.exam);
+    if (report.changed.size) {
+      if (undoStack.at(-1) !== before) undoStack.push(before);
+      $("#undo-btn").disabled = false;
+      if (editing && report.changed.has(editing)) editing = null;  // its text changed underneath: show the new one
+      renderEditor(report.changed);
+    }
+    if (same({ ...plan, title: 0 }, { ...theirs, title: 0 })) { dirty = false; clearTimeout(saveTimer); }
+    else changed(false);
+    const who = r.updated_by === "claude" ? "Claude" : "another window";
+    if (report.conflicts) notice = `you and ${who} changed the same section, so your version was kept`;
+    setStatus(notice ? `Updated by ${who} · ${notice}` : `Updated by ${who}`);
+  } catch { /* offline for a moment */ }
+  finally { pulling = false; }
+}
+async function checkForUpdates() {
+  if (!uid || !plan || $("#editor").hidden || document.hidden || saving || dirty || pulling || editing) return;
+  try {
+    const v = await api(`/api/plans/${uid}/version?owner=${code}`);
+    if (v.updated_at !== version && !saving && !dirty) await pullRemote();
+  } catch { /* next time */ }
+}
+setInterval(checkForUpdates, 2000);
+
+// ---------------------------------------------------------------- my lesson plans
+let homeSeen = "";
+const listSignature = rows => rows.map(r => `${r.uid} ${r.updated_at}`).join("|");
+async function renderHome() {
+  $("#home").hidden = false; $("#editor").hidden = true;
+  history.replaceState(null, "", location.pathname + location.search);
+  $("#new-btn").disabled = !code;
+  const box = $("#home-list");
+  if (!code) { box.innerHTML = '<p class="note">Type your three-letter staff code in the top bar to see your lesson plans.</p>'; return; }
+  let rows;
+  try { rows = await api(`/api/plans?owner=${code}`); }
+  catch (e) { box.innerHTML = `<p class="bad">Could not load your lesson plans: ${esc(e.message)}</p>`; return; }
+  homeSeen = listSignature(rows);
+  box.innerHTML = rows.length ? "" : '<p class="note">No lesson plans yet. Ask Claude to plan a lesson, or click + New lesson plan.</p>';
+  for (const r of rows) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const when = r.lesson_date ? new Date(r.lesson_date + "T00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" }) : "";
+    row.innerHTML = `<div class="t"><div>${esc(r.title || "Untitled lesson plan")}</div>
+      <div class="details">${esc([r.subject, r.year_level && `Year ${r.year_level}`, when].filter(Boolean).join(" · "))}</div></div>
+      <span class="note">updated ${esc(new Date(r.updated_at).toLocaleDateString("en-AU"))}</span>`;
+    const open = Object.assign(document.createElement("button"), { textContent: "Open", onclick: () => openPlan(r.uid) });
+    const del = Object.assign(document.createElement("button"), { textContent: "Delete", className: "danger", onclick: () => deletePlan(r) });
+    row.append(open, del);
+    box.append(row);
+  }
+}
+async function checkHomeList() {
+  if ($("#home").hidden || document.hidden || !code) return;
+  try { if (listSignature(await api(`/api/plans?owner=${code}`)) !== homeSeen) renderHome(); } catch { /* next time */ }
+}
+setInterval(checkHomeList, 5000);
+async function deletePlan(r) {
+  if (!confirm(`Delete "${r.title || "Untitled lesson plan"}"? This cannot be undone.`)) return;
+  try { await api(`/api/plans/${r.uid}?owner=${code}`, { method: "DELETE" }); } catch (e) { alert(`Could not delete: ${e.message}`); }
+  renderHome();
+}
+
+// ---------------------------------------------------------------- the plan
+function openEditor() {
+  $("#home").hidden = true; $("#editor").hidden = false;
+  history.replaceState(null, "", `${location.pathname}${location.search}#plan=${uid}`);
+  undoStack = []; $("#undo-btn").disabled = true; editing = null; notice = "";
+  renderEditor();
+}
+function newPlan() {
+  uid = newUid(); plan = blankPlan(); version = null; baseJson = JSON.stringify(plan);
+  plan.lesson_date = new Date().toISOString().slice(0, 10);
+  openEditor();
+  changed(false);
+}
+async function openPlan(id) {
+  try {
+    const r = await api(`/api/plans/${id}?owner=${code}`);
+    uid = id; plan = { ...blankPlan(), ...r.exam }; plan.sections = { ...blankPlan().sections, ...r.exam.sections };
+    version = r.updated_at; baseJson = JSON.stringify(r.exam); dirty = false;
+    openEditor();
+    setStatus("Saved");
+  } catch (e) { alert(`Could not open that lesson plan: ${e.message}`); renderHome(); }
+}
+
+function logoCell() {
+  return settings.has_logo ? `<img src="/school-logo?v=${Date.now()}" alt="">` : `<span class="school">${esc(settings.school_name)}</span>`;
+}
+function renderEditor(flash = new Set()) {
+  for (const input of document.querySelectorAll(".details-form [data-field]")) {
+    if (document.activeElement !== input) input.value = plan[input.dataset.field] || "";
+  }
+  const rows = [`<tr><td class="logo" colspan="3">${logoCell()}</td></tr>`];
+  for (const [k, name] of SECTIONS) {
+    const body = editing === k
+      ? `<textarea class="edit" data-k="${k}">${esc(plan.sections[k])}</textarea>`
+      : `<div class="content" data-k="${k}">${renderMarkdown(plan.sections[k])}</div>`;
+    rows.push(`<tr data-k="${k}" class="${flash.has(k) ? "remote-change" : ""}"><td class="letter">${k}</td><td class="name">${name}</td><td class="content-cell">${body}</td></tr>`);
+  }
+  $("#learn").innerHTML = rows.join("");
+  const area = $("#learn textarea.edit");
+  if (area) { area.focus(); area.style.height = Math.max(150, area.scrollHeight + 4) + "px"; }
+}
+$("#learn").addEventListener("click", e => {
+  const cell = e.target.closest(".content");
+  if (!cell || e.target.closest("a")) return;
+  editing = cell.dataset.k;
+  renderEditor();
+});
+$("#learn").addEventListener("input", e => {
+  if (!e.target.matches("textarea.edit")) return;
+  plan.sections[e.target.dataset.k] = e.target.value;
+  changed();
+});
+$("#learn").addEventListener("focusout", e => {
+  if (!e.target.matches("textarea.edit")) return;
+  editing = null;
+  setTimeout(() => { if (!document.activeElement?.matches?.("textarea.edit")) renderEditor(); });
+});
+for (const input of document.querySelectorAll(".details-form [data-field]")) {
+  input.addEventListener("input", () => { plan[input.dataset.field] = input.value; changed(); });
+}
+$("#back-btn").onclick = async () => { clearTimeout(saveTimer); await save(); if (!dirty) { setStatus(""); uid = null; renderHome(); } };
+$("#new-btn").onclick = newPlan;
+
+// ---------------------------------------------------------------- start
+$("#code").addEventListener("input", e => {
+  const c = normalise(e.target.value);
+  if (c === code) return;
+  code = c;
+  try { c ? localStorage.setItem("staffCode", c) : localStorage.removeItem("staffCode"); } catch {}
+  renderHome();
+});
+addEventListener("hashchange", async () => {
+  const m = location.hash.match(/^#plan=([a-z0-9-]+)$/);
+  if (!m || !code || (m[1] === uid && !$("#editor").hidden)) return;
+  clearTimeout(saveTimer); await save();
+  if (!dirty) openPlan(m[1]);
+});
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { checkForUpdates(); checkHomeList(); } });
+
+try { code = normalise(localStorage.getItem("staffCode")); } catch {}
+$("#code").value = code;
+api("/api/settings").then(s => {
+  settings = { ...settings, ...s };
+  if (s.theme_colour) document.documentElement.style.setProperty("--red", s.theme_colour);
+}).catch(() => {}).finally(() => {
+  const m = location.hash.match(/^#plan=([a-z0-9-]+)$/);
+  if (m && code) openPlan(m[1]); else renderHome();
+});
+</script>
+</body>
+</html>
