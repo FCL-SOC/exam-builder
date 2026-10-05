@@ -5,252 +5,785 @@
   "description": "One exam as the editor in static/index.html stores it. See docs/exam-format.md for the authoring rules that a schema cannot express (marks only on the deepest parts, graph expression syntax, $maths$ in text).",
   "type": "object",
   "additionalProperties": false,
-  "required": ["sections"],
+  "required": [
+    "sections"
+  ],
   "properties": {
-    "learning_area": {"enum": ["", "English", "Health and PE", "Humanities", "Languages", "Mathematics", "Science", "Technologies", "The Arts"]},
-    "subject": {"type": "string", "maxLength": 120},
-    "unit": {"type": "string", "maxLength": 200, "description": "Topic or unit, printed large on the cover, e.g. 'Probability' or 'Unit 3 AoS 1'."},
-    "task": {"type": "string", "maxLength": 120, "description": "e.g. 'Written Examination'. Omit to use the school's default."},
-    "semester": {"enum": ["1", "2"]},
-    "year": {"type": "string", "pattern": "^[0-9]{4}$"},
-    "reading_min": {"type": "integer", "minimum": 0, "maximum": 60},
-    "writing_min": {"type": "integer", "minimum": 0, "maximum": 300},
-    "calculator": {"enum": ["none", "scientific", "cas"]},
-    "instructions": {"type": "string", "maxLength": 4000, "description": "Cover instructions. Omit to use the school's default wording. A line starting '## ' is a heading; {calculator} inserts the calculator rule."},
-    "show_teacher": {"type": "boolean"},
-    "shared": {"type": "boolean"},
-    "no_write": {"type": "boolean"},
-    "assessment_type": {"enum": ["Exam", "Test", "CAT", "SAC", "Quiz", "Assignment", "Practice exam"]},
-    "year_level": {"enum": ["", "7", "8", "9", "10", "11", "12"]},
-    "title": {"type": "string", "description": "Computed by the editor on save; ignored on import."},
-    "total_marks": {"type": "number", "description": "Computed by the editor on save; ignored on import."},
-    "sections": {"type": "array", "minItems": 1, "maxItems": 10, "items": {"$ref": "#/$defs/section"}}
+    "learning_area": {
+      "enum": [
+        "",
+        "English",
+        "Health and PE",
+        "Humanities",
+        "Languages",
+        "Mathematics",
+        "Science",
+        "Technologies",
+        "The Arts"
+      ]
+    },
+    "subject": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "unit": {
+      "type": "string",
+      "maxLength": 200,
+      "description": "Topic or unit, printed large on the cover, e.g. 'Probability' or 'Unit 3 AoS 1'."
+    },
+    "task": {
+      "type": "string",
+      "maxLength": 120,
+      "description": "e.g. 'Written Examination'. Omit to use the school's default."
+    },
+    "semester": {
+      "enum": [
+        "1",
+        "2"
+      ]
+    },
+    "year": {
+      "type": "string",
+      "pattern": "^[0-9]{4}$"
+    },
+    "reading_min": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 60
+    },
+    "writing_min": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 300
+    },
+    "calculator": {
+      "enum": [
+        "none",
+        "scientific",
+        "cas"
+      ]
+    },
+    "instructions": {
+      "type": "string",
+      "maxLength": 4000,
+      "description": "Cover instructions. Omit to use the school's default wording. A line starting '## ' is a heading; {calculator} inserts the calculator rule."
+    },
+    "show_teacher": {
+      "type": "boolean"
+    },
+    "shared": {
+      "type": "boolean"
+    },
+    "no_write": {
+      "type": "boolean"
+    },
+    "assessment_type": {
+      "enum": [
+        "Exam",
+        "Test",
+        "CAT",
+        "SAC",
+        "Quiz",
+        "Assignment",
+        "Practice exam"
+      ]
+    },
+    "year_level": {
+      "enum": [
+        "",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "description": "Computed by the editor on save; ignored on import."
+    },
+    "total_marks": {
+      "type": "number",
+      "description": "Computed by the editor on save; ignored on import."
+    },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "items": {
+        "$ref": "#/$defs/section"
+      }
+    }
   },
   "$defs": {
     "section": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "questions"],
+      "required": [
+        "name",
+        "questions"
+      ],
       "properties": {
-        "name": {"type": "string", "maxLength": 10, "description": "Usually a letter: 'A', 'B'. Printed as 'Section A'."},
-        "description": {"type": "string", "maxLength": 200, "description": "e.g. 'Multiple choice' or 'Short answer'."},
-        "to_answer": {"type": ["integer", "null"], "minimum": 1, "description": "How many questions students must answer; null means all."},
-        "instructions": {"type": "string", "maxLength": 2000, "description": "Optional note under the section heading. Supports $maths$."},
-        "questions": {"type": "array", "minItems": 1, "maxItems": 60, "items": {"$ref": "#/$defs/question"}}
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,32}$",
+          "description": "Stable id, assigned automatically; never printed. Keep it when changing a question."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 10,
+          "description": "Usually a letter: 'A', 'B'. Printed as 'Section A'."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "e.g. 'Multiple choice' or 'Short answer'."
+        },
+        "to_answer": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "How many questions students must answer; null means all."
+        },
+        "instructions": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Optional note under the section heading. Supports $maths$."
+        },
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 60,
+          "items": {
+            "$ref": "#/$defs/question"
+          }
+        }
       }
     },
     "question": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["blocks"],
+      "required": [
+        "blocks"
+      ],
       "properties": {
-        "marks": {"$ref": "#/$defs/marks"},
-        "new_page": {"type": "boolean"},
-        "blocks": {"$ref": "#/$defs/blocks"},
-        "parts": {"type": "array", "maxItems": 12, "items": {"$ref": "#/$defs/part"}}
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,32}$",
+          "description": "Stable id, assigned automatically; never printed. Keep it when changing a question."
+        },
+        "marks": {
+          "$ref": "#/$defs/marks"
+        },
+        "new_page": {
+          "type": "boolean"
+        },
+        "blocks": {
+          "$ref": "#/$defs/blocks"
+        },
+        "parts": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "$ref": "#/$defs/part"
+          }
+        }
       }
     },
     "part": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["blocks"],
+      "required": [
+        "blocks"
+      ],
       "properties": {
-        "marks": {"$ref": "#/$defs/marks"},
-        "new_page": {"type": "boolean"},
-        "blocks": {"$ref": "#/$defs/blocks"},
-        "parts": {"type": "array", "maxItems": 12, "items": {"$ref": "#/$defs/subpart"}}
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,32}$",
+          "description": "Stable id, assigned automatically; never printed. Keep it when changing a question."
+        },
+        "marks": {
+          "$ref": "#/$defs/marks"
+        },
+        "new_page": {
+          "type": "boolean"
+        },
+        "blocks": {
+          "$ref": "#/$defs/blocks"
+        },
+        "parts": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "$ref": "#/$defs/subpart"
+          }
+        }
       }
     },
     "subpart": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["blocks"],
+      "required": [
+        "blocks"
+      ],
       "properties": {
-        "marks": {"$ref": "#/$defs/marks"},
-        "blocks": {"$ref": "#/$defs/blocks"},
-        "parts": {"type": "array", "maxItems": 0}
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,32}$",
+          "description": "Stable id, assigned automatically; never printed. Keep it when changing a question."
+        },
+        "marks": {
+          "$ref": "#/$defs/marks"
+        },
+        "blocks": {
+          "$ref": "#/$defs/blocks"
+        },
+        "parts": {
+          "type": "array",
+          "maxItems": 0
+        }
       }
     },
-    "marks": {"type": ["number", "null"], "minimum": 0, "maximum": 100, "multipleOf": 0.5},
-    "align": {"enum": ["l", "c", "r"]},
-    "blocks": {"type": "array", "maxItems": 30, "items": {"$ref": "#/$defs/block"}},
+    "marks": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 100,
+      "multipleOf": 0.5
+    },
+    "align": {
+      "enum": [
+        "l",
+        "c",
+        "r"
+      ]
+    },
+    "blocks": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "$ref": "#/$defs/block"
+      }
+    },
     "block": {
       "type": "object",
-      "required": ["type"],
-      "properties": {"type": {"enum": ["text", "equation", "lines", "box", "table", "answer", "choices", "graph"]}},
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "text",
+            "equation",
+            "lines",
+            "box",
+            "table",
+            "answer",
+            "choices",
+            "graph"
+          ]
+        }
+      },
       "allOf": [
-        {"if": {"properties": {"type": {"const": "text"}}}, "then": {"$ref": "#/$defs/text"}},
-        {"if": {"properties": {"type": {"const": "equation"}}}, "then": {"$ref": "#/$defs/equation"}},
-        {"if": {"properties": {"type": {"const": "lines"}}}, "then": {"$ref": "#/$defs/lines"}},
-        {"if": {"properties": {"type": {"const": "box"}}}, "then": {"$ref": "#/$defs/box"}},
-        {"if": {"properties": {"type": {"const": "table"}}}, "then": {"$ref": "#/$defs/table"}},
-        {"if": {"properties": {"type": {"const": "answer"}}}, "then": {"$ref": "#/$defs/answer"}},
-        {"if": {"properties": {"type": {"const": "choices"}}}, "then": {"$ref": "#/$defs/choices"}},
-        {"if": {"properties": {"type": {"const": "graph"}}}, "then": {"$ref": "#/$defs/graph"}}
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "text"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "equation"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/equation"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "lines"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/lines"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "box"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/box"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "table"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/table"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "answer"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/answer"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "choices"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/choices"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "graph"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/graph"
+          }
+        }
       ]
     },
     "text": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "value"],
+      "required": [
+        "type",
+        "value"
+      ],
       "properties": {
-        "type": {"const": "text"},
-        "value": {"type": "string", "maxLength": 5000, "description": "Plain text; newlines kept; $...$ is inline LaTeX."},
-        "align": {"$ref": "#/$defs/align"}
+        "type": {
+          "const": "text"
+        },
+        "value": {
+          "type": "string",
+          "maxLength": 5000,
+          "description": "Plain text; newlines kept; $...$ is inline LaTeX."
+        },
+        "align": {
+          "$ref": "#/$defs/align"
+        }
       }
     },
     "equation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "value"],
+      "required": [
+        "type",
+        "value"
+      ],
       "properties": {
-        "type": {"const": "equation"},
-        "value": {"type": "string", "minLength": 1, "maxLength": 2000, "description": "Display LaTeX, without $ delimiters."},
-        "align": {"$ref": "#/$defs/align"}
+        "type": {
+          "const": "equation"
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "Display LaTeX, without $ delimiters."
+        },
+        "align": {
+          "$ref": "#/$defs/align"
+        }
       }
     },
     "lines": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "n"],
+      "required": [
+        "type",
+        "n"
+      ],
       "properties": {
-        "type": {"const": "lines"},
-        "n": {"type": "integer", "minimum": 1, "maximum": 30, "description": "Number of ruled answer lines."}
+        "type": {
+          "const": "lines"
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30,
+          "description": "Number of ruled answer lines."
+        }
       }
     },
     "box": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "height_cm"],
+      "required": [
+        "type",
+        "height_cm"
+      ],
       "properties": {
-        "type": {"const": "box"},
-        "height_cm": {"type": "number", "minimum": 1, "maximum": 25, "description": "Height of an empty working box."}
+        "type": {
+          "const": "box"
+        },
+        "height_cm": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 25,
+          "description": "Height of an empty working box."
+        }
       }
     },
     "table": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "rows"],
+      "required": [
+        "type",
+        "rows"
+      ],
       "properties": {
-        "type": {"const": "table"},
+        "type": {
+          "const": "table"
+        },
         "rows": {
-          "type": "array", "minItems": 1, "maxItems": 30,
-          "items": {"type": "array", "minItems": 1, "maxItems": 12, "items": {"type": "string", "maxLength": 500}},
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 30,
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "items": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
           "description": "Cells as strings (supports $maths$). Every row the same length. Empty cells are for students to fill in."
         },
-        "header": {"type": "boolean", "description": "Bold the first row."},
-        "shade_rows": {"type": "array", "items": {"type": "integer", "minimum": 0}},
-        "shade_cols": {"type": "array", "items": {"type": "integer", "minimum": 0}},
-        "align": {"$ref": "#/$defs/align"}
+        "header": {
+          "type": "boolean",
+          "description": "Bold the first row."
+        },
+        "shade_rows": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "shade_cols": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "align": {
+          "$ref": "#/$defs/align"
+        }
       }
     },
     "answer": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "boxes"],
+      "required": [
+        "type",
+        "boxes"
+      ],
       "properties": {
-        "type": {"const": "answer"},
+        "type": {
+          "const": "answer"
+        },
         "boxes": {
-          "type": "array", "minItems": 1, "maxItems": 4,
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
           "items": {
-            "type": "object", "additionalProperties": false,
+            "type": "object",
+            "additionalProperties": false,
             "properties": {
-              "label": {"type": "string", "maxLength": 120, "description": "Printed before the box, e.g. 'Total cost ='. Supports $maths$."},
-              "units": {"type": "string", "maxLength": 40, "description": "Printed inside the right of the box, e.g. 'm s$^{-1}$'."}
+              "label": {
+                "type": "string",
+                "maxLength": 120,
+                "description": "Printed before the box, e.g. 'Total cost ='. Supports $maths$."
+              },
+              "units": {
+                "type": "string",
+                "maxLength": 40,
+                "description": "Printed inside the right of the box, e.g. 'm s$^{-1}$'."
+              }
             }
           }
         },
-        "align": {"$ref": "#/$defs/align"}
+        "align": {
+          "$ref": "#/$defs/align"
+        }
       }
     },
     "choices": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "options"],
+      "required": [
+        "type",
+        "options"
+      ],
       "properties": {
-        "type": {"const": "choices"},
+        "type": {
+          "const": "choices"
+        },
         "options": {
-          "type": "array", "minItems": 2, "maxItems": 8,
-          "items": {"anyOf": [
-            {"type": "string", "maxLength": 1000},
-            {"$ref": "#/$defs/graph"},
-            {"$ref": "#/$defs/table"}
-          ]},
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 8,
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "$ref": "#/$defs/graph"
+              },
+              {
+                "$ref": "#/$defs/table"
+              }
+            ]
+          },
           "description": "Lettered A, B, C... A string option supports $maths$. Graph or table options lay out 2 x 2."
         },
-        "correct": {"type": ["integer", "null"], "minimum": 0, "description": "Index of the correct option (0 = A). Shown to the teacher, never printed."}
+        "correct": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "Index of the correct option (0 = A). Shown to the teacher, never printed."
+        }
       }
     },
     "axis": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["min", "max"],
+      "required": [
+        "min",
+        "max"
+      ],
       "properties": {
-        "min": {"type": "number"},
-        "max": {"type": "number"},
-        "step": {"type": "number", "exclusiveMinimum": 0, "description": "Grid and number spacing. Default 1."},
-        "label": {"type": "string", "maxLength": 40}
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "step": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Grid and number spacing. Default 1."
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 40
+        }
       }
     },
     "graph": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "x"],
+      "required": [
+        "type",
+        "x"
+      ],
       "properties": {
-        "type": {"const": "graph"},
-        "kind": {"enum": ["plot", "boxplot", "histogram"], "description": "Default 'plot'."},
-        "width": {"type": "number", "minimum": 25, "maximum": 100, "description": "Percent of the column width. Default 70 (100 inside a multiple-choice option)."},
-        "grid": {"type": "boolean"},
-        "numbers": {"type": "boolean"},
-        "fit": {"type": "boolean", "description": "Draw a least-squares line of best fit through the points."},
-        "connect": {"type": "boolean", "description": "Join the points in x order (time series)."},
-        "x": {"$ref": "#/$defs/axis"},
-        "y": {"$ref": "#/$defs/axis"},
+        "type": {
+          "const": "graph"
+        },
+        "kind": {
+          "enum": [
+            "plot",
+            "boxplot",
+            "histogram"
+          ],
+          "description": "Default 'plot'."
+        },
+        "width": {
+          "type": "number",
+          "minimum": 25,
+          "maximum": 100,
+          "description": "Percent of the column width. Default 70 (100 inside a multiple-choice option)."
+        },
+        "grid": {
+          "type": "boolean"
+        },
+        "numbers": {
+          "type": "boolean"
+        },
+        "fit": {
+          "type": "boolean",
+          "description": "Draw a least-squares line of best fit through the points."
+        },
+        "connect": {
+          "type": "boolean",
+          "description": "Join the points in x order (time series)."
+        },
+        "x": {
+          "$ref": "#/$defs/axis"
+        },
+        "y": {
+          "$ref": "#/$defs/axis"
+        },
         "functions": {
-          "type": "array", "maxItems": 6,
+          "type": "array",
+          "maxItems": 6,
           "items": {
-            "type": "object", "additionalProperties": false, "required": ["expr"],
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "expr"
+            ],
             "properties": {
-              "expr": {"type": "string", "minLength": 1, "maxLength": 200, "description": "In x, e.g. 'x^2 - 2', '3sin(2x)', 'e^(-x)', '1/(x-1)'."},
-              "from": {"type": ["number", "null"]},
-              "to": {"type": ["number", "null"]},
-              "dashed": {"type": "boolean"}
+              "expr": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "description": "In x, e.g. 'x^2 - 2', '3sin(2x)', 'e^(-x)', '1/(x-1)'."
+              },
+              "from": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "to": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "dashed": {
+                "type": "boolean"
+              }
             }
           }
         },
         "points": {
-          "type": "array", "maxItems": 200,
+          "type": "array",
+          "maxItems": 200,
           "items": {
-            "type": "object", "additionalProperties": false, "required": ["x", "y"],
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "x",
+              "y"
+            ],
             "properties": {
-              "x": {"type": "number"},
-              "y": {"type": "number"},
-              "label": {"type": "string", "maxLength": 20},
-              "open": {"type": "boolean", "description": "Hollow circle."}
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "open": {
+                "type": "boolean",
+                "description": "Hollow circle."
+              }
             }
           }
         },
         "box": {
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "description": "Box plot: paste raw 'data', or give the five-number summary.",
           "properties": {
-            "data": {"type": "string", "maxLength": 5000},
-            "min": {"type": "number"}, "q1": {"type": "number"}, "median": {"type": "number"},
-            "q3": {"type": "number"}, "max": {"type": "number"},
-            "hidden": {"type": "boolean", "description": "Draw only the scale, for students to draw the plot."}
+            "data": {
+              "type": "string",
+              "maxLength": 5000
+            },
+            "min": {
+              "type": "number"
+            },
+            "q1": {
+              "type": "number"
+            },
+            "median": {
+              "type": "number"
+            },
+            "q3": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "hidden": {
+              "type": "boolean",
+              "description": "Draw only the scale, for students to draw the plot."
+            }
           }
         },
         "hist": {
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "description": "Histogram: bars [start, start+width), ... Heights from 'counts', or counted from raw 'data'.",
           "properties": {
-            "start": {"type": "number"},
-            "width": {"type": "number", "exclusiveMinimum": 0},
-            "counts": {"type": "string", "maxLength": 1000, "description": "Comma-separated bar heights, e.g. '2, 5, 8, 4, 1'."},
-            "data": {"type": "string", "maxLength": 5000}
+            "start": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "counts": {
+              "type": "string",
+              "maxLength": 1000,
+              "description": "Comma-separated bar heights, e.g. '2, 5, 8, 4, 1'."
+            },
+            "data": {
+              "type": "string",
+              "maxLength": 5000
+            }
           }
         },
-        "align": {"$ref": "#/$defs/align"}
+        "align": {
+          "$ref": "#/$defs/align"
+        }
       }
     }
   }

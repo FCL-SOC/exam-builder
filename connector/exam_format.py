@@ -19,6 +19,7 @@ import copy
 import json
 import math
 import re
+import secrets
 import zlib
 from pathlib import Path
 from typing import Any, Callable
@@ -442,6 +443,37 @@ def exam_title(ex: dict) -> str:
     return re.sub(r"^· ", "", text) or "Untitled exam"
 
 
+def new_id() -> str:
+    """Same shape as the editor's newId(): 8 hex characters."""
+    return secrets.token_hex(4)
+
+
+def ensure_ids(exam: dict) -> int:
+    """Give every section, question and part a unique id, as the editor's ensureIds() does. Returns how many were added."""
+    seen: set[str] = set()
+    added = 0
+
+    def visit(obj: dict) -> None:
+        nonlocal added
+        if not isinstance(obj.get("id"), str) or not obj["id"] or obj["id"] in seen:
+            obj["id"] = new_id()
+            while obj["id"] in seen:
+                obj["id"] = new_id()
+            added += 1
+        seen.add(obj["id"])
+
+    def walk(item: dict) -> None:
+        visit(item)
+        for part in item.get("parts") or []:
+            walk(part)
+
+    for section in exam.get("sections") or []:
+        visit(section)
+        for q in section.get("questions") or []:
+            walk(q)
+    return added
+
+
 def normalise(exam: dict, total_marks: float) -> dict:
     """A copy with every field the editor reads filled in. School-wide defaults (task, instructions) stay absent so
     the editor fills them from School settings."""
@@ -452,6 +484,7 @@ def normalise(exam: dict, total_marks: float) -> dict:
                        "questions": [_item_defaults(q) for q in s["questions"]]} for s in ex["sections"]]
     ex["total_marks"] = total_marks
     ex["title"] = exam_title(ex)
+    ensure_ids(ex)
     return ex
 
 

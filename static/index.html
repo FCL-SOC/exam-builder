@@ -503,8 +503,25 @@ const ROMAN = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi"
 const label = (depth, i) => depth === 0 ? `Question ${i + 1}` : depth === 1 ? String.fromCharCode(97 + i) + "." : (ROMAN[i] || i + 1) + ".";
 
 // ---------------------------------------------------------------- model
-const newItem = () => ({ marks: null, blocks: [{ type: "text", value: "" }], parts: [] });
-const newSection = name => ({ name, description: "", to_answer: null, instructions: "", questions: [newItem()] });
+const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, "0")).join("");
+const newItem = () => ({ id: newId(), marks: null, blocks: [{ type: "text", value: "" }], parts: [] });
+const newSection = name => ({ id: newId(), name, description: "", to_answer: null, instructions: "", questions: [newItem()] });
+// Every section, question and part carries an id that never changes (and is never printed), so edits made at the
+// same time in another tab or by Claude can be matched up question by question. Returns how many were added.
+function ensureIds(ex) {
+  const seen = new Set();
+  let added = 0;
+  const visit = o => {
+    if (typeof o.id !== "string" || !o.id || seen.has(o.id)) {
+      do o.id = newId(); while (seen.has(o.id));
+      added++;
+    }
+    seen.add(o.id);
+  };
+  const walk = it => { visit(it); it.parts.forEach(walk); };
+  for (const s of ex.sections) { visit(s); s.questions.forEach(walk); }
+  return added;
+}
 const defaults = () => ({
   learning_area: "", subject: "", unit: "", task: settings.default_task, semester: "1",
   year: String(new Date().getFullYear()), reading_min: 10, writing_min: 60, calculator: "none",
@@ -663,8 +680,10 @@ async function openExam(id) {
     const r = await api(`/api/exams/${id}?owner=${code}`);
     uid = id; exam = { ...defaults(), ...r.exam }; examOwner = r.owner; readOnly = r.owner !== code;
     dirty = false;
+    const added = ensureIds(exam);  // exams from before ids existed
     openEditor();
     setStatus(readOnly ? `Viewing ${r.owner}'s shared exam (read-only)` : "Saved");
+    if (added && !readOnly) scheduleSave(false);
   } catch (e) {
     alert(`Could not open that exam: ${e.message}`);
     renderHome();
@@ -729,6 +748,7 @@ function tidyImported(ex) {
 
 function importExam(imported) {
   uid = newUid(); exam = tidyImported(imported); examOwner = code; readOnly = false;
+  ensureIds(exam);
   openEditor();  // swaps #data=… for #exam=uid, so a reload opens the saved copy rather than importing again
   scheduleSave(false);
 }
