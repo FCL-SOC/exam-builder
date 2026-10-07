@@ -236,7 +236,7 @@ class SettingsTests(unittest.TestCase):
         self.assertNotIn("Bella", (self.dir / "settings.json").read_text())
         cookie = self.settings.session_cookie()
         self.assertTrue(self.settings.session_ok(cookie))
-        self.assertFalse(self.settings.session_ok(cookie[:-1] + "0"))
+        self.assertFalse(self.settings.session_ok(cookie[:-1] + ("1" if cookie[-1] == "0" else "0")))  # tampered
         self.settings.set_login("Staff", "Another")  # a new password signs everyone out
         self.assertFalse(self.settings.session_ok(cookie))
         self.settings.set_login("", "")
