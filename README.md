@@ -23,8 +23,9 @@ It needs **no internet connection and no packages**: just Python's standard libr
 1. Download this repository (green **Code** button → **Download ZIP**) and unzip it.
 2. Double-click **`setup.bat`** once. It downloads a portable Python into a `python` folder.
    (If you already have Python 3.10 or newer installed, you can skip this.)
-3. Double-click **`start.bat`**, then open <http://localhost:7900>.
-4. Other staff use `http://<this-computer's-name>:7900`. Allow Python through Windows Firewall when asked.
+3. Double-click **`start.bat`**, then open <http://localhost>.
+4. Other staff use `http://<this-computer's-name>`. Allow Python through Windows Firewall when asked. It uses port 80,
+   the standard web port, so nothing else on that computer (such as IIS) may be using port 80.
 
 ### macOS or Linux
 

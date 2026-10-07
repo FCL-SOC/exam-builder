@@ -14,7 +14,7 @@ The teacher guide is [TEACHERS.md](TEACHERS.md).
 ## School mode
 
 ```
-Claude Desktop ──▶ extension (on each teacher's PC) ──▶ connector :7901 ──▶ Exam Assistant :7900 ──▶ exams.db
+Claude Desktop ──▶ extension (on each teacher's PC) ──▶ connector :7901 ──▶ Exam Assistant :80 ──▶ exams.db
                                                                                   ▲
                                                  teacher's browser, exam open ────┘  (checks every 2 s)
 ```
@@ -34,8 +34,8 @@ merged question by question, and when both changed the same question the teacher
 
 | Variable | Default from start.bat | |
 |---|---|---|
-| `EXAM_SERVER` | `http://127.0.0.1:7900` | Exam Assistant, as the connector reaches it |
-| `EDITOR_URL` | `http://<computer name>:7900/` | Exam Assistant, as teachers' browsers reach it (in Claude's links) |
+| `EXAM_SERVER` | `http://127.0.0.1:80` | Exam Assistant, as the connector reaches it |
+| `EDITOR_URL` | `http://<computer name>/` | Exam Assistant, as teachers' browsers reach it (in Claude's links) |
 | `PUBLIC_URL` | `http://<computer name>:7901` | The connector's own address |
 | `DATA_DIR` | `connector\data` | Where the version before each of Claude's changes is kept (30 days) |
 

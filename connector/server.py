@@ -7,7 +7,7 @@ School mode (EXAM_SERVER is set) — next to the school's Exam Assistant, on the
 edits exams in the teacher's own library; the teacher watches the changes appear live in the editor. Teachers
 connect through the Claude Desktop extension in connector/desktop-extension/, which sends their staff code.
 
-    EXAM_SERVER=http://127.0.0.1:7900 EDITOR_URL=http://8801-openai-01:7900/ PORT=7901 python connector/server.py
+    EXAM_SERVER=http://127.0.0.1:80 EDITOR_URL=http://8801-openai-01/ PORT=7901 python connector/server.py
 
 Link mode (no EXAM_SERVER) — anywhere public. Claude writes an exam and hands the teacher a link that opens it in
 the online editor (or the school server). Usable from Claude on the web and phone; nothing is saved.
@@ -15,11 +15,11 @@ the online editor (or the school server). Usable from Claude on the web and phon
     python connector/server.py                    # http://localhost:8000/mcp
 
 Settings (environment variables):
-    EXAM_SERVER   school mode: Exam Assistant's address as this server reaches it, e.g. http://127.0.0.1:7900
+    EXAM_SERVER   school mode: Exam Assistant's address as this server reaches it, e.g. http://127.0.0.1:80
     EDITOR_URL    school mode: Exam Assistant's address as teachers' browsers reach it (default EXAM_SERVER)
     PUBLIC_URL    this server's own address, e.g. http://8801-openai-01:7901 (links, and the allowed Host header)
     DEMO_URL      link mode: the editor links open in (default: the GitHub Pages demo)
-    SCHOOL_URL    link mode: optional "Open on the school server" button, e.g. http://examserver:7900/
+    SCHOOL_URL    link mode: optional "Open on the school server" button, e.g. http://examserver/
     DATA_DIR      links (link mode) and earlier versions (school mode) are kept here (default: connector/data)
     LINK_DAYS     link mode: how long a link works (default 30)
     PORT          default 8000

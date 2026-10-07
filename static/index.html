@@ -265,8 +265,8 @@
     #graph-panel select { font-size: 14px; }
     .logo-hint { display: flex; align-items: center; justify-content: center; height: 24mm; width: 60mm; margin: 0 auto 1mm;
                  border: 1.5px dashed #c8b89a; border-radius: 4px; color: #8a7a5a; font: 12px 'Segoe UI', Arial, sans-serif; text-align: center; }
-    #school-btn, #feedback-btn { background: none; color: #fff; border-color: rgba(255,255,255,.6); font-size: 13px; }
-    #school-btn:hover, #feedback-btn:hover { border-color: #fff; }
+    #school-btn, #feedback-btn, #logout-btn { background: none; color: #fff; border-color: rgba(255,255,255,.6); font-size: 13px; }
+    #school-btn:hover, #feedback-btn:hover, #logout-btn:hover { border-color: #fff; }
     #claude-btn { font-size: 13px; border-color: #fff; }  /* filled, so teachers notice it */
     .eq input.latex { display: block; width: 80%; margin: 4px auto 0; font: 12px Consolas, 'Courier New', monospace; }
 
@@ -366,6 +366,7 @@
     <input id="code" maxlength="3" autocomplete="off" placeholder="ABC">
     <button id="claude-btn" title="Write and edit exams with Claude" hidden>Use with Claude</button>
     <button id="feedback-btn" title="Suggest an improvement or report a problem">Feedback</button>
+    <button id="logout-btn" title="Log this browser out of Exam Assistant" hidden>Log out</button>
     <button id="school-btn" title="School name, logo, cover wording, fonts and colours">School settings</button>
     <span id="status"></span>
   </header>
@@ -516,6 +517,12 @@
       <h3>App colours</h3>
       <label>Main colour <input id="st-theme_colour" type="color"></label>
       <label>Highlight colour <input id="st-accent_colour" type="color"></label>
+      <h3>Site login</h3>
+      <p class="note" id="st-login-state"></p>
+      <label>Login name <input id="st-login-user" maxlength="40" autocomplete="off" placeholder="e.g. Staff"></label>
+      <label>New password <input id="st-login-pass" type="password" maxlength="64" autocomplete="new-password"></label>
+      <p class="note"><button type="button" id="st-login-save">Turn on / change login</button>
+        <button type="button" id="st-login-off">Turn login off</button></p>
       <h3>Feedback from teachers</h3>
       <p class="note">Suggestions sent with the Feedback button, newest first. <button type="button" id="st-feedback-show">Show feedback</button></p>
       <div id="st-feedback"></div>
@@ -1825,6 +1832,7 @@ let adminPin = window.EXAM_DEMO ? "demo" : "", logoVersion = Date.now();  // the
 const logoUrl = () => window.demoLogoUrl || `/school-logo?v=${logoVersion}`;
 
 function applySettings() {
+  showLoginState();
   const root = document.documentElement.style;
   root.setProperty("--red", settings.theme_colour);
   root.setProperty("--gold", settings.accent_colour);
@@ -1887,6 +1895,7 @@ function fillSchoolForm() {
     if (el.type === "checkbox") el.checked = !!settings[key]; else el.value = settings[key] ?? "";
   }
   fillLogoPreview();
+  showLoginState();
 }
 // Logo changes save straight away; they must not reset the rest of the form, which may hold unsaved edits.
 function fillLogoPreview() {
@@ -1946,6 +1955,29 @@ async function changePin() {
 }
 $("#st-body_font").append(...FONTS.map(([value, name]) => h("option", { value }, name)));
 $("#school-btn").onclick = openSchoolSettings;
+$("#logout-btn").onclick = () => { location.href = "/logout"; };
+function showLoginState() {
+  $("#logout-btn").hidden = !settings.login_user || !!window.EXAM_DEMO;
+  $("#st-login-state").textContent = settings.login_user
+    ? `On: everyone logs in as ${settings.login_user} before typing their staff code. Computers that get the password wrong 5 times are locked out for a while.`
+    : "Off: anyone who can reach this server can open Exam Assistant. Set a login name and password to keep students out.";
+  $("#st-login-user").value = settings.login_user || "";
+  $("#st-login-pass").value = "";
+}
+async function saveLogin(user, password) {
+  try {
+    const r = await adminCall("/api/settings/site-login", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ user, password }) });
+    settings.login_user = r.login_user;
+    showLoginState();
+    $("#school-err").textContent = "";
+  } catch { /* the message is shown */ }
+}
+$("#st-login-save").onclick = () => {
+  const user = $("#st-login-user").value.trim(), password = $("#st-login-pass").value;
+  if (!user || !password) return void ($("#school-err").textContent = "Type a login name and a new password.");
+  saveLogin(user, password);
+};
+$("#st-login-off").onclick = () => saveLogin("", "");
 $("#feedback-btn").hidden = !!window.EXAM_DEMO;  // the online demo has nowhere to keep it
 $("#feedback-btn").onclick = () => { $("#fb-err").textContent = ""; $("#fb-send").disabled = false; $("#feedback").showModal(); $("#fb-text").focus(); };
 $("#fb-cancel").onclick = () => $("#feedback").close();

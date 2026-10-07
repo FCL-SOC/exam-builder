@@ -4,7 +4,7 @@ Exam Assistant: build exams in the browser and print them to PDF.
 Standard library only, so it runs on Python 3.10 or newer (on Windows, the
 portable Python that setup.bat downloads) with no packages to install:
 
-    python server.py [port]        (default 7900)
+    python server.py [port]        (default 80, the standard web port: http://<computer name>/)
 
 Teachers identify themselves with a three-letter code. It is NOT authentication:
 every query is scoped to that code, and someone else's exam is a 404 rather than
@@ -17,6 +17,7 @@ changes need the admin PIN chosen on first run.
 
 import hashlib
 import hmac
+import html
 import json
 import logging
 import os
@@ -31,9 +32,10 @@ import urllib.request
 import zipfile
 from datetime import datetime, timedelta
 from io import BytesIO
+from http.cookies import CookieError, SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 ROOT = Path(__file__).resolve().parent
 
@@ -389,6 +391,9 @@ _COLOUR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 LOGO_TYPES = {"image/png": (".png", b"\x89PNG\r\n\x1a\n"), "image/jpeg": (".jpg", b"\xff\xd8\xff"), "image/webp": (".webp", b"RIFF")}
 PIN_TRIES = 5
 PIN_LOCK_SECONDS = 60
+# The site login (School settings) keeps students out; teachers then type their staff code as before.
+LOGIN_DAYS = 14
+LOGIN_COOKIE = "ea_login"
 
 
 def validate_setting(key, value):
@@ -443,7 +448,55 @@ class SchoolSettings:
         out = {key: data.get(key, default) for key, default in DEFAULT_SETTINGS.items()}
         out["pin_set"] = bool(data.get("pin_hash"))
         out["has_logo"] = self.logo_path() is not None
+        out["login_user"] = self.login_user()
         return out
+
+    # ---- the site login: a name and a salted, hashed password, like the PIN. Off until a password is set.
+    def login_user(self):
+        data = self._read()
+        return data.get("site_user", "") if data.get("site_pass_hash") else ""
+
+    def set_login(self, user, password):
+        """An empty password turns the login off. A new password signs everyone out."""
+        with self._lock:
+            data = self._read()
+            if not password:
+                for key in ("site_user", "site_pass_salt", "site_pass_hash"):
+                    data.pop(key, None)
+            else:
+                if not (isinstance(user, str) and 1 <= len(user.strip()) <= 40):
+                    raise ValueError("The login name must be 1 to 40 characters.")
+                if not (isinstance(password, str) and 4 <= len(password) <= 64):
+                    raise ValueError("The password must be 4 to 64 characters.")
+                salt = secrets.token_hex(16)
+                data.update(site_user=user.strip(), site_pass_salt=salt, site_pass_hash=self._hash(password, salt),
+                            session_secret=secrets.token_hex(32))
+            self._write(data)
+
+    def check_login(self, user, password):
+        """The name ignores case; the password doesn't."""
+        data = self._read()
+        if not (data.get("site_pass_hash") and isinstance(user, str) and isinstance(password, str)):
+            return False
+        same_user = hmac.compare_digest(user.strip().lower().encode(), data["site_user"].lower().encode())
+        same_pass = hmac.compare_digest(self._hash(password, data["site_pass_salt"]), data["site_pass_hash"])
+        return same_user and same_pass
+
+    def _sign(self, expires):
+        return hmac.new(bytes.fromhex(self._read().get("session_secret", "")), str(expires).encode(), "sha256").hexdigest()
+
+    def session_cookie(self):
+        """A signed "<expiry>.<signature>": nothing to store, and it survives a server restart."""
+        expires = int(time.time()) + LOGIN_DAYS * 86400
+        return f"{expires}.{self._sign(expires)}"
+
+    def session_ok(self, value):
+        try:
+            expires, sig = value.split(".")
+            expires = int(expires)
+        except (AttributeError, ValueError):
+            return False
+        return expires > time.time() and bool(self._read().get("session_secret")) and hmac.compare_digest(sig, self._sign(expires))
 
     @staticmethod
     def _hash(pin, salt):
@@ -524,11 +577,67 @@ class SchoolSettings:
             (self.dir / f"logo{ext}").unlink(missing_ok=True)
 
 
+class LoginGuard:
+    """Brute-force protection for the site login, per computer: after FREE_TRIES wrong passwords it is locked out for
+    a minute, then two, four … up to an hour. Only a right password clears its count."""
+
+    FREE_TRIES, MAX_LOCK = 5, 3600
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._ips = {}  # ip -> [wrong tries, locked until (monotonic)]
+
+    def wait(self, ip):
+        """Seconds this computer must still wait, or 0."""
+        with self._lock:
+            entry = self._ips.get(ip)
+            return max(0, round(entry[1] - time.monotonic())) if entry else 0
+
+    def failed(self, ip):
+        with self._lock:
+            if len(self._ips) > 10_000:  # ponytail: forget everyone at 10k computers; a school has far fewer
+                self._ips.clear()
+            entry = self._ips.setdefault(ip, [0, 0.0])
+            entry[0] += 1
+            if entry[0] >= self.FREE_TRIES:
+                entry[1] = time.monotonic() + min(self.MAX_LOCK, 60 * 2 ** (entry[0] - self.FREE_TRIES))
+
+    def succeeded(self, ip):
+        with self._lock:
+            self._ips.pop(ip, None)
+
+
+LOGIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exam Assistant · Log in</title><style>
+  body {{ font: 15px/1.5 "Segoe UI", Arial, sans-serif; background: #efefef; color: #222; margin: 0; }}
+  header {{ background: {colour}; color: #fff; padding: 12px 20px; font-size: 18px; font-weight: 700; }}
+  form {{ max-width: 340px; margin: 12vh auto 0; background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.15); }}
+  h1 {{ font-size: 20px; margin: 0 0 4px; }} p {{ margin: 0 0 16px; color: #555; }}
+  label {{ display: block; margin: 10px 0 4px; font-weight: 600; }}
+  input {{ width: 100%; box-sizing: border-box; padding: 8px; font: inherit; border: 1px solid #bbb; border-radius: 4px; }}
+  button {{ margin-top: 16px; width: 100%; padding: 10px; font: inherit; font-weight: 600; border: 0; border-radius: 4px;
+           background: {colour}; color: #fff; cursor: pointer; }}
+  .bad {{ color: #b00020; margin: 12px 0 0; }}
+</style></head><body><header>Exam Assistant</header>
+<form method="post" action="/login"><h1>{school}</h1><p>Staff log in</p>
+  <input type="hidden" name="next" value="{next}">
+  <label for="user">Login name</label><input id="user" name="user" autocomplete="username" autofocus required>
+  <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required>
+  <button>Log in</button>{message}</form></body></html>"""
+
+
+def _safe_next(path):
+    """Only a path on this site: never //elsewhere.example or a backslash trick."""
+    return path if path.startswith("/") and not path.startswith("//") and "\\" not in path else "/"
+
+
 class Handler(SimpleHTTPRequestHandler):
     store = None     # an ExamStore, set by main() or by the tests
     settings = None  # a SchoolSettings, set by main() or by the tests
     plans = None     # an ExamStore for lesson plans (table lesson_plans), set by main() or by the tests
     feedback = None  # a Feedback, set by main() or by the tests
+    guard = LoginGuard()
+    trust_local = True  # requests from this computer itself (the Claude connector) skip the site login
     claude = ClaudeExtension()  # the Claude Desktop extension download
 
     # Windows builds this map from the registry, which sometimes has .js as text/plain.
@@ -696,6 +805,14 @@ class Handler(SimpleHTTPRequestHandler):
             if self._pin_ok(pin_header):
                 self.settings.delete_logo()
                 self._json({"ok": True})
+        elif path == "/api/settings/site-login" and method == "POST":
+            body = self._read_json(4096)
+            if body is not None and self._pin_ok(pin_header):
+                try:
+                    self.settings.set_login(body.get("user") or "", body.get("password") or "")
+                    self._json({"ok": True, "login_user": self.settings.login_user()})
+                except ValueError as e:
+                    self._json({"error": str(e)}, 400)
         elif path == "/api/settings/feedback" and method == "GET":
             if self._pin_ok(pin_header):
                 self._json(self.feedback.all())
@@ -739,7 +856,80 @@ class Handler(SimpleHTTPRequestHandler):
             return True
         return False
 
+    # ---- the site login, in front of everything
+    def _redirect(self, location, cookie=None):
+        self.send_response(303)
+        self.send_header("Location", location)
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _login_page(self, nxt, message="", status=200):
+        s = self.settings.public()
+        body = LOGIN_PAGE.format(colour=html.escape(s["theme_colour"]), school=html.escape(s["school_name"]),
+                                 next=html.escape(_safe_next(nxt)),
+                                 message=f'<p class="bad">{html.escape(message)}</p>' if message else "").encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return True
+
+    def _login(self, url):
+        if not self.settings.login_user():
+            self._redirect("/")
+            return True
+        if self.command != "POST":
+            return self._login_page(parse_qs(url.query).get("next", ["/"])[0])
+        raw = self._read_body(4096)
+        if raw is None:
+            return True
+        form = parse_qs(raw.decode("utf-8", "replace"))
+        nxt, ip = form.get("next", ["/"])[0], self.client_address[0]
+        wait = self.guard.wait(ip)
+        if wait:
+            return self._login_page(nxt, f"Too many wrong passwords. Try again in {max(1, round(wait / 60))} minute(s).", 429)
+        if self.settings.check_login(form.get("user", [""])[0], form.get("password", [""])[0]):
+            self.guard.succeeded(ip)
+            self._redirect(_safe_next(nxt), f"{LOGIN_COOKIE}={self.settings.session_cookie()}; Max-Age={LOGIN_DAYS * 86400}; "
+                                            "Path=/; HttpOnly; SameSite=Lax")
+            return True
+        self.guard.failed(ip)
+        logger.warning("Wrong site login from %s", ip)
+        time.sleep(0.5)  # slows scripted guessing; other requests carry on (one thread each)
+        return self._login_page(nxt, "That login name or password isn't right.", 401)
+
+    def _gate(self):
+        """True if the request was answered here: the login page itself, or turned away for want of a login."""
+        url = urlparse(self.path)
+        if url.path == "/login":
+            return self._login(url)
+        if url.path == "/logout":
+            self._redirect("/login", f"{LOGIN_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax")
+            return True
+        if not self.settings.login_user() or (self.trust_local and self.client_address[0] in ("127.0.0.1", "::1")):
+            return False
+        try:
+            cookie = SimpleCookie(self.headers.get("Cookie") or "")
+        except CookieError:
+            cookie = {}
+        if LOGIN_COOKIE in cookie and self.settings.session_ok(cookie[LOGIN_COOKIE].value):
+            return False
+        if self.command == "GET" and not url.path.startswith(("/api/", "/claude/", "/import-template", "/school-logo")):
+            self._redirect("/login?next=" + quote(url.path + (f"?{url.query}" if url.query else ""), safe=""))
+        else:
+            self._json({"error": "Log in to Exam Assistant first: reload the page."}, 401)
+        return True
+
+    def do_HEAD(self):
+        if not self._gate():
+            super().do_HEAD()
+
     def do_GET(self):
+        if self._gate():
+            return
         if self._import_route("GET") or self._settings_route("GET") or self._claude_route():
             return
         api = self._api()
@@ -785,10 +975,14 @@ class Handler(SimpleHTTPRequestHandler):
         return True
 
     def do_POST(self):
+        if self._gate():
+            return
         if not self._import_route("POST") and not self._settings_route("POST") and not self._feedback_route():
             self._json({"error": "Not found."}, 404)
 
     def do_PUT(self):
+        if self._gate():
+            return
         if self._settings_route("PUT"):
             return
         api = self._api()
@@ -814,6 +1008,8 @@ class Handler(SimpleHTTPRequestHandler):
         self._json({"ok": True, "updated_at": saved})
 
     def do_DELETE(self):
+        if self._gate():
+            return
         if self._settings_route("DELETE"):
             return
         api = self._api()
@@ -827,7 +1023,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main():
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 7900
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 80
     DATA.mkdir(exist_ok=True)
     Handler.store = ExamStore(DATA / "exams.db")
     Handler.plans = ExamStore(DATA / "exams.db", table="lesson_plans", details=_PLAN_DETAILS)

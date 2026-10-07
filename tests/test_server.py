@@ -227,6 +227,21 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(pub["school_name"], "Your School")
         self.assertEqual((pub["pin_set"], pub["has_logo"]), (False, False))
 
+    def test_site_login_is_off_until_set_and_checks_name_and_password(self):
+        self.assertEqual(self.settings.login_user(), "")
+        self.settings.set_login("Staff", "Bella")
+        self.assertEqual(self.settings.login_user(), "Staff")
+        self.assertTrue(self.settings.check_login("staff ", "Bella"))  # the name ignores case and spaces
+        self.assertFalse(self.settings.check_login("Staff", "bella"))
+        self.assertNotIn("Bella", (self.dir / "settings.json").read_text())
+        cookie = self.settings.session_cookie()
+        self.assertTrue(self.settings.session_ok(cookie))
+        self.assertFalse(self.settings.session_ok(cookie[:-1] + ("1" if cookie[-1] == "0" else "0")))  # tampered
+        self.settings.set_login("Staff", "Another")  # a new password signs everyone out
+        self.assertFalse(self.settings.session_ok(cookie))
+        self.settings.set_login("", "")
+        self.assertEqual(self.settings.login_user(), "")
+
     def test_extra_page_is_off_until_switched_on(self):
         self.assertIs(self.settings.public()["extra_page"], False)
         self.assertIs(self.settings.update({"extra_page": True})["extra_page"], True)
@@ -287,6 +302,7 @@ class HttpTests(unittest.TestCase):
                                                 details=server._PLAN_DETAILS)
         server.Handler.settings = server.SchoolSettings(Path(self.tmp.name))
         server.Handler.feedback = server.Feedback(Path(self.tmp.name) / "exams.db")
+        server.Handler.guard = server.LoginGuard()
         self.httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
         self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
@@ -376,6 +392,56 @@ class HttpTests(unittest.TestCase):
     def test_serves_frontend(self):
         with urllib.request.urlopen(self.base + "/") as r:
             self.assertIn(b"Exam Assistant", r.read())
+
+    def test_site_login_keeps_out_everyone_without_it(self):
+        server.Handler.trust_local = False  # these requests come from this computer, which is trusted otherwise
+        self.addCleanup(setattr, server.Handler, "trust_local", True)
+        self.assertEqual(self.call("GET", "/api/settings")[0], 200)  # no login set: open as before
+        server.Handler.settings.set_login("Staff", "Bella")
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
+
+        def get(path):
+            try:
+                with opener.open(self.base + path) as r:
+                    return r.status, r.url, r.read()
+            except urllib.error.HTTPError as e:
+                return e.code, e.url, e.read()
+
+        def login(user, password, nxt="/?exam=abc12345"):
+            data = urllib.parse.urlencode({"user": user, "password": password, "next": nxt}).encode()
+            try:
+                with opener.open(self.base + "/login", data) as r:
+                    return r.status, r.url
+            except urllib.error.HTTPError as e:
+                return e.code, e.url
+
+        status, url, body = get("/?exam=abc12345")
+        self.assertEqual((status, urllib.parse.urlparse(url).path), (200, "/login"))  # sent to the login page
+        self.assertIn(b"Staff log in", body)
+        self.assertEqual(get("/api/exams?owner=ABC")[0], 401)
+        self.assertEqual(login("Staff", "wrong")[0], 401)
+        self.assertEqual(login("Staff", "Bella", nxt="//evil.example/")[1], self.base + "/")  # never off-site
+        self.assertEqual(get("/api/exams?owner=ABC")[0], 200)  # logged in
+        self.assertEqual(get("/logout")[0], 200)
+        self.assertEqual(get("/api/exams?owner=ABC")[0], 401)
+        server.Handler.trust_local = True  # the Claude connector, on the server itself, needs no login
+        self.assertEqual(get("/api/exams?owner=ABC")[0], 200)
+
+    def test_site_login_locks_out_a_computer_after_five_wrong_passwords(self):
+        server.Handler.trust_local = False
+        self.addCleanup(setattr, server.Handler, "trust_local", True)
+        server.Handler.settings.set_login("Staff", "Bella")
+        def login(password):
+            data = urllib.parse.urlencode({"user": "Staff", "password": password}).encode()
+            try:
+                with urllib.request.urlopen(self.base + "/login", data) as r:
+                    return r.status
+            except urllib.error.HTTPError as e:
+                with e:
+                    return e.code
+        for _ in range(server.LoginGuard.FREE_TRIES):
+            self.assertEqual(login("guess"), 401)
+        self.assertEqual(login("Bella"), 429)  # locked out, even with the right password
 
     def test_feedback_is_kept_and_read_with_the_admin_pin(self):
         self.assertEqual(self.call("POST", "/api/feedback?owner=abc", {"text": "Add network diagrams", "page": "exams"})[0], 200)
