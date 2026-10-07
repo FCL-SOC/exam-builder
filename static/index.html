@@ -53,6 +53,12 @@
   .tabs button.on { background: var(--red); color: #fff; border-color: var(--red); }
   .area h2 { color: var(--red); font-size: 18px; border-bottom: 2px solid var(--gold); padding-bottom: 4px; margin: 20px 0 8px; }
   .area h3 { font-size: 13px; color: #555; margin: 10px 0 6px; text-transform: uppercase; letter-spacing: .04em; }
+  /* Learning areas and subjects fold away: click the heading. */
+  .area summary { list-style: none; cursor: pointer; }
+  .area summary::-webkit-details-marker { display: none; }
+  .area summary > :is(h2, h3)::before { content: "▾"; display: inline-block; width: 1.1em; }
+  .area details:not([open]) > summary > h3::before, details.area:not([open]) > summary > h2::before { content: "▸"; }
+  .area summary .n { font-weight: 400; color: #888; text-transform: none; letter-spacing: 0; }
   .row { display: flex; gap: 8px; align-items: center; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 6px; }
   .row .t { flex: 1; font-weight: 600; }
   .row .details { font-weight: 400; font-size: 12px; color: #666; margin-top: 2px; }
@@ -896,14 +902,26 @@ async function renderHome() {
   };
   const groups = {};
   for (const r of rows) ((groups[r.learning_area || "No learning area"] ??= {})[heading(r)] ??= []).push(r);
+  const count = list => h("span", { class: "n" }, ` (${list.length})`);
   for (const area of Object.keys(groups).sort()) {
-    const div = h("div", { class: "area" }, h("h2", {}, area));
+    const all = Object.values(groups[area]).flat();
+    const div = h("details", { class: "area", ...foldable(area) }, h("summary", {}, h("h2", {}, area, count(all))));
     for (const subject of Object.keys(groups[area]).sort()) {
-      div.append(h("h3", {}, subject), ...groups[area][subject].map(homeRow));
+      const rows = groups[area][subject];
+      div.append(h("details", foldable(`${area} / ${subject}`), h("summary", {}, h("h3", {}, subject, count(rows))), ...rows.map(homeRow)));
     }
     box.append(div);
   }
 }
+
+// What's folded stays folded when the list redraws (filters, the refresh every few seconds) and next visit, in
+// this browser only.
+let folded = new Set();
+try { folded = new Set(JSON.parse(localStorage.getItem("foldedHome") || "[]")); } catch {}
+const foldable = key => ({ open: !folded.has(key), ontoggle: e => {
+  e.target.open ? folded.delete(key) : folded.add(key);
+  try { localStorage.setItem("foldedHome", JSON.stringify([...folded])); } catch {}
+} });
 
 function homeRow(r) {
   const mine = r.owner === code;
