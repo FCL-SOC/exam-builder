@@ -74,6 +74,10 @@
     "shared": {
       "type": "boolean"
     },
+    "shared_edit": {
+      "type": "boolean",
+      "description": "With shared: other teachers can edit it, not just view it. Only its owner can change this."
+    },
     "no_write": {
       "type": "boolean"
     },

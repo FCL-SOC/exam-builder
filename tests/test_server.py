@@ -98,6 +98,16 @@ class StoreTests(unittest.TestCase):
         self.assertTrue(self.store.save("ABC", "exam-0001", {"title": "forced"}))  # no base: overwrite, as before
         self.assertTrue(self.store.save("ABC", "exam-0002", {"title": "new"}, base="anything"))  # nothing to clash with
 
+    def test_shared_as_editable_others_can_save_but_not_take_over(self):
+        self.store.save("ABC", "exam-0001", {"title": "Mine", "shared": True})
+        self.assertFalse(self.store.save("XYZ", "exam-0001", {"title": "Theirs"}))  # shared to view only
+        self.store.save("ABC", "exam-0001", {"title": "Mine", "shared": True, "shared_edit": True})
+        self.assertTrue(self.store.save("XYZ", "exam-0001", {"title": "Edited", "shared": False}))
+        found = self.store.get("ABC", "exam-0001")
+        self.assertEqual((found["owner"], found["title"], found["updated_by"]), ("ABC", "Edited", "xyz"))
+        self.assertEqual((found["exam"]["shared"], found["exam"]["shared_edit"]), (True, True))  # still the owner's choice
+        self.assertFalse(self.store.delete("XYZ", "exam-0001"))
+
     def test_version(self):
         stamp = self.store.save("ABC", "exam-0001", {"title": "x"}, by="claude")
         self.assertEqual(self.store.version("ABC", "exam-0001"), {"updated_at": stamp, "updated_by": "claude"})

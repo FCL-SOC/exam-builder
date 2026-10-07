@@ -236,7 +236,8 @@ if MODE == "school":
             school.change(owner, exam_id, lambda exam, images: set(), "ids", keep_history=False)
             found = school.read(owner, exam_id)
         shown, _ = school_mode.hide_images(found["exam"])
-        return {"exam_id": exam_id, "editor_link": school.link(exam_id), "read_only": found["owner"] != owner,
+        editable = found["owner"] == owner or (found["exam"].get("shared") and found["exam"].get("shared_edit"))
+        return {"exam_id": exam_id, "editor_link": school.link(exam_id), "read_only": not editable,
                 "outline": school_mode.outline(shown, exam_id), "exam": shown}
 
     @mcp.tool(title="Create an exam", annotations=WRITE)
