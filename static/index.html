@@ -1327,7 +1327,7 @@ function blockInner(b, grips = true) {
       inner = String(b.value || "").startsWith("data:image/")
         ? `<div class="imgbox" style="width:${clamp(Number(b.width) || 60, 10, 100)}%"><img class="img" src="${esc(b.value)}" alt="">${grip}</div>`
         : b.placeholder && !readOnly
-          ? `<div class="imgbox img-todo" style="width:${clamp(Number(b.width) || 60, 10, 100)}%">${esc(b.placeholder)}${grip}</div>`
+          ? `<div class="imgbox img-todo" style="width:${clamp(Number(b.width) || 60, 10, 100)}%">${esc(b.placeholder)}<br><small>Click this question and paste (Ctrl+V) or drop a picture</small>${grip}</div>`
           : "";
       break;
     case "lines": inner = `<div class="lines"><div class="ln">${"<div></div>".repeat(clamp(Number(b.n) || 0, 0, 30))}</div>${grip}</div>`; break;
@@ -2442,6 +2442,27 @@ paper.addEventListener("drop", async e => {
   e.preventDefault();
   try { paperRefs[item.dataset.node].obj.blocks.push({ type: "image", value: await loadImage(file), width: 60 }); changed(); }
   catch (err) { alert(err.message); }
+});
+
+// Paste a picture (a screenshot, or an image copied from a page or document) with Ctrl+V. It goes into the question
+// being typed in, else the one last pointed at, filling a picture placeholder there if one is waiting. Text pastes
+// as text, as before.
+document.addEventListener("paste", async e => {
+  if (readOnly || $("#editor-view").hidden || e.target.closest?.("dialog, input, textarea, math-field")) return;
+  const file = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith("image/"));
+  if (!file) return;
+  e.preventDefault();
+  const items = [...document.querySelectorAll('#paper [data-kind="item"]')];
+  const el = document.activeElement?.closest?.('#paper [data-kind="item"]')
+    || items.find(i => paperRefs[i.dataset.node]?.obj === lastItemObj) || items.at(-1);
+  if (!el) return alert("Add a question first, then paste the picture into it.");
+  const item = paperRefs[el.dataset.node].obj;
+  try {
+    const src = await loadImage(file), waiting = item.blocks.find(b => b.type === "image" && !b.value);
+    if (waiting) { waiting.value = src; delete waiting.placeholder; } else item.blocks.push({ type: "image", value: src, width: 60 });
+    lastItemObj = item;
+    changed();
+  } catch (err) { alert(err.message); }
 });
 
 // A link to another exam pasted into this tab (e.g. the one Claude gives) only changes the #, so follow it here.
