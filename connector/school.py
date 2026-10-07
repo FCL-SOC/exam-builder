@@ -493,7 +493,7 @@ class School:
         self.editor_url = editor_url.rstrip("/") + "/"
 
     def link(self, uid: str) -> str:
-        return f"{self.editor_url}#exam={uid}"
+        return f"{self.editor_url}?exam={uid}"  # not #: some in-app browsers drop it
 
     def read(self, owner: str, uid: str) -> dict:
         found = self.server.get(owner, uid)

@@ -92,6 +92,9 @@
 </main>
 
 <script>
+// Claude's links say ?plan=…, because some in-app browsers drop everything after a #. Turn it into #plan=… first.
+{ const m = location.search.match(/[?&]plan=([a-z0-9-]+)/);
+  if (m) history.replaceState(null, "", location.pathname + location.search.replace(/([?&])plan=[a-z0-9-]+&?/, "$1").replace(/[?&]$/, "") + "#plan=" + m[1]); }
 // ---------------------------------------------------------------- the LEARN framework
 const SECTIONS = [["L", "Learning Clarity"], ["E", "Explain"], ["A", "Application"], ["R", "Reflect"], ["N", "Next Steps"]];
 const DETAILS = ["class_code", "subject", "year_level", "topic", "lesson_date"];
