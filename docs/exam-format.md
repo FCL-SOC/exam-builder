@@ -33,7 +33,7 @@ won't print until every deepest item has marks above 0. Half marks are allowed.
 | `learning_area` | `English`, `Health and PE`, `Humanities`, `Languages`, `Mathematics`, `Science`, `Technologies`, `The Arts` | Groups the exam in teachers' libraries |
 | `subject` | text | e.g. `Year 10 Mathematics`, `Business Management` |
 | `unit` | text | Topic, printed large: `Probability`, `Unit 3 AoS 1` |
-| `assessment_type` | `Exam`, `Test`, `CAT`, `SAC`, `Quiz`, `Assignment`, `Practice exam`, `Worksheet` | `Worksheet`: no cover page or "do not write" strip, a header with the class details instead; set `task` to e.g. `Worksheet` |
+| `assessment_type` | `Exam`, `Test`, `CAT`, `SAC`, `Quiz`, `Assignment`, `Practice exam`, `Worksheet` | `Worksheet`: no cover page or "do not write" strip, a header with the class details instead, and no section headings: put all the questions in one section; set `task` to e.g. `Worksheet` |
 | `class_code` | e.g. `10MM1` | worksheets: printed in the header |
 | `year_level` | `7` … `12` | as a string |
 | `semester`, `year` | `"1"`/`"2"`, `"2026"` | strings |

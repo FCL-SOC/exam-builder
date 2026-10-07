@@ -170,11 +170,14 @@ def outline(exam: dict, uid: str) -> str:
         for j, p in enumerate(it.get("parts") or []):
             walk(p, depth + 1, j)
 
+    first = 0
     for s in exam.get("sections") or []:
         title = f"Section {s.get('name', '')}" + (f": {s['description']}" if s.get("description") else "")
         lines.append(f"{title}  [id {s.get('id')}]")
         for i, q in enumerate(s.get("questions") or []):
-            walk(q, 0, i)
+            walk(q, 0, i + first)
+        if exam.get("assessment_type") == "Worksheet":  # numbered straight through, as the editor shows it
+            first += len(s.get("questions") or [])
     return "\n".join(lines)
 
 
