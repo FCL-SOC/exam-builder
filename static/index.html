@@ -327,13 +327,11 @@
      AND lets us alternate: a left-hand page carries it on its right edge and vice versa, so it always falls by
      the spine. paginate() switches the whole sheet off by setting media="not all" when the exam turns it off. -->
 <style id="nowrite" media="print">
-  /* The margin box fills its margin, so the strip would touch the text. Its own margin is the only thing
-     Chrome honours here (width and background-clip are ignored): 2mm on the inner side keeps the text clear. */
-  @page :left  { @right-middle { content: "Do not write in this area."; background: #404040; color: #fff;
-                   writing-mode: vertical-rl; font: 700 13pt Arial, sans-serif; padding: 10mm 1mm; margin-left: 2mm; } }
-  @page :right { @left-middle  { content: "Do not write in this area."; background: #404040; color: #fff;
-                   writing-mode: vertical-rl; font: 700 13pt Arial, sans-serif; padding: 10mm 1mm; margin-right: 2mm;
-                   transform: rotate(180deg); } }
+  /* The strip is a picture, not a coloured box: Chrome prints pictures even with "Background graphics" off (its
+     default), but drops a margin box's background, leaving white text on white paper. 13 mm by the page's 266 mm,
+     2 mm clear of the text; reads down the right edge of a left-hand page and up the left edge of a right-hand one. */
+  @page :left  { @right-middle { content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13mm' height='266mm' viewBox='0 0 13 266'%3E%3Crect width='13' height='266' fill='%23404040'/%3E%3Ctext transform='translate(6.5 133) rotate(90)' text-anchor='middle' dominant-baseline='central' font-family='Arial, sans-serif' font-weight='700' font-size='4.6' fill='%23fff'%3EDo not write in this area.%3C/text%3E%3C/svg%3E"); margin-left: 2mm; } }
+  @page :right { @left-middle  { content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13mm' height='266mm' viewBox='0 0 13 266'%3E%3Crect width='13' height='266' fill='%23404040'/%3E%3Ctext transform='translate(6.5 133) rotate(-90)' text-anchor='middle' dominant-baseline='central' font-family='Arial, sans-serif' font-weight='700' font-size='4.6' fill='%23fff'%3EDo not write in this area.%3C/text%3E%3C/svg%3E"); margin-right: 2mm; } }
   @page :first { @right-middle { content: none; } @left-middle { content: none; } }  /* never on the cover */
 </style>
 </head>
