@@ -18,14 +18,14 @@ if errorlevel 1 (
 set "PYTHON_EXE=python"
 
 :run
-echo  Open browser at: http://localhost:7900
+echo  Open browser at: http://localhost
 cd /d "%ROOT%"
 
 rem The Claude connector starts too, once setup-connector.bat has installed its packages.
 "%PYTHON_EXE%" -c "import mcp, jsonschema, uvicorn" >nul 2>nul
 if errorlevel 1 goto app
-if not defined EXAM_SERVER set "EXAM_SERVER=http://127.0.0.1:7900"
-if not defined EDITOR_URL set "EDITOR_URL=http://%COMPUTERNAME%:7900/"
+if not defined EXAM_SERVER set "EXAM_SERVER=http://127.0.0.1:80"
+if not defined EDITOR_URL set "EDITOR_URL=http://%COMPUTERNAME%/"
 if not defined PUBLIC_URL set "PUBLIC_URL=http://%COMPUTERNAME%:7901"
 set "PORT=7901"
 start "Exam Assistant - Claude connector" /min "%PYTHON_EXE%" "%ROOT%connector\server.py"
@@ -34,5 +34,5 @@ echo  Claude connector:  http://%COMPUTERNAME%:7901  - minimised in its own wind
 :app
 echo  Press Ctrl+C to stop.
 echo ============================================================
-"%PYTHON_EXE%" "%ROOT%server.py" 7900
+"%PYTHON_EXE%" "%ROOT%server.py" 80
 pause
