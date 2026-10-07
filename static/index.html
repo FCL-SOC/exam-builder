@@ -48,7 +48,8 @@
   #import-box p { margin: 0 0 8px; }
   #import-box .bad { color: var(--red); font-weight: 600; }
   .home-inner { max-width: 900px; margin: 0 auto; }
-  .tabs { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .tabs, .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .filters select, .filters input { flex: 1 1 140px; min-width: 0; }
   .tabs button.on { background: var(--red); color: #fff; border-color: var(--red); }
   .area h2 { color: var(--red); font-size: 18px; border-bottom: 2px solid var(--gold); padding-bottom: 4px; margin: 20px 0 8px; }
   .area h3 { font-size: 13px; color: #555; margin: 10px 0 6px; text-transform: uppercase; letter-spacing: .04em; }
@@ -357,13 +358,18 @@
       <div class="tabs">
         <button id="tab-mine" class="on">My exams</button>
         <button id="tab-shelf">Faculty shelf</button>
-        <select id="shelf-area" hidden></select>
-        <input id="home-filter" type="search" placeholder="Filter by topic, type, subject or year" style="min-width: 260px">
         <span class="grow"></span>
         <button id="plans-btn" onclick="location.href='plans.html' + location.search">Lesson plans</button>
         <button id="import-btn">Import from a sheet</button>
         <button id="new-ws-btn">+ New worksheet</button>
         <button id="new-btn" class="primary">+ New exam</button>
+      </div>
+      <div class="filters">
+        <select id="f-type" aria-label="Type"></select>
+        <select id="f-area" aria-label="Learning area"></select>
+        <select id="f-subject" aria-label="Subject"></select>
+        <select id="f-year" aria-label="Year level"></select>
+        <input id="home-filter" type="search" placeholder="Search topics">
       </div>
       <div id="import-box" hidden>
         <p><b>Build an exam from a spreadsheet.</b> Download the template, fill it in (or ask an AI assistant to —
@@ -841,7 +847,6 @@ async function renderHome() {
   history.replaceState(null, "", location.pathname + location.search + (pendingImport ? location.hash : ""));
   $("#tab-mine").classList.toggle("on", tab === "mine");
   $("#tab-shelf").classList.toggle("on", tab === "shelf");
-  $("#shelf-area").hidden = tab !== "shelf";
   $("#new-btn").disabled = $("#new-ws-btn").disabled = !code;
   const box = $("#home-list");
   box.replaceChildren();
@@ -855,7 +860,7 @@ async function renderHome() {
   try {
     rows = tab === "mine"
       ? await api(`/api/exams?owner=${code}`)
-      : await api(`/api/shelf?owner=${code}&learning_area=${encodeURIComponent($("#shelf-area").value)}`);
+      : await api(`/api/shelf?owner=${code}`);
   } catch (e) {
     if (request === homeRequest) box.append(h("p", { class: "bad" }, `Could not load exams: ${e.message}`));
     return;
@@ -863,10 +868,22 @@ async function renderHome() {
   if (request !== homeRequest) return;
   if (tab === "mine") { fillSubjects(rows.map(r => r.subject)); homeSeen = listSignature(rows); }
   if (!rows.length) box.append(h("p", { class: "note" }, tab === "mine" ? "No exams yet. Click + New exam." : "Nothing has been shared here yet."));
+  // Type, then learning area, then subject, then year: each menu lists only what the choices before it leave,
+  // so a new subject appears as soon as an exam has it, and a choice that no longer applies goes back to "All".
+  const typeOf = r => r.assessment_type || "Exam";
+  for (const [sel, key, all, label] of [["#f-type", typeOf, "All types", v => v], ["#f-area", "learning_area", "All learning areas", v => v],
+    ["#f-subject", "subject", "All subjects", v => v], ["#f-year", "year_level", "All years", v => `Year ${v}`]]) {
+    const get = typeof key === "function" ? key : r => r[key] || "";
+    const values = [...new Set(rows.map(get))].filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const el = $(sel), keep = el.value;
+    el.replaceChildren(h("option", { value: "" }, all), ...values.map(v => h("option", { value: v }, label(v))));
+    el.value = values.includes(keep) ? keep : "";
+    if (el.value) rows = rows.filter(r => get(r) === el.value);
+  }
   const filter = $("#home-filter").value.trim().toLowerCase();
   if (filter) rows = rows.filter(r => [r.title, r.topic, r.assessment_type, r.subject, r.learning_area, r.year_level && `year ${r.year_level}`, r.task]
     .join(" ").toLowerCase().includes(filter));
-  if (filter && !rows.length) box.append(h("p", { class: "note" }, "No exams match that filter."));
+  if (!rows.length && box.childElementCount === 0) box.append(h("p", { class: "note" }, "No exams match that filter."));
   // Several tests, CATs and exams per subject and year level sit together under one heading.
   const heading = r => {
     const subject = r.subject || "No subject";
@@ -1872,8 +1889,7 @@ $("#st-change-pin").hidden = !!window.EXAM_DEMO;
 $("#demo-bar").hidden = !window.EXAM_DEMO;
 
 // ---------------------------------------------------------------- wiring
-$("#shelf-area").append(h("option", { value: "" }, "All learning areas"), ...LEARNING_AREAS.map(a => h("option", { value: a }, a)));
-$("#shelf-area").onchange = renderHome;
+for (const id of ["#f-type", "#f-area", "#f-subject", "#f-year"]) $(id).onchange = renderHome;
 let filterTimer = null;
 $("#home-filter").oninput = () => { clearTimeout(filterTimer); filterTimer = setTimeout(renderHome, 200); };
 $("#tab-mine").onclick = () => { tab = "mine"; renderHome(); };
