@@ -151,6 +151,8 @@ class ValidateTests(unittest.TestCase):
         self.assertError(exam(q(graph("sqrt(-1 - x^2)"))), "undefined everywhere")
         self.assertWarning(exam(q(graph("x + 100"))), "never comes within")
         self.assertError(exam(q(graph() | {"functions": [{"expr": "x", "from": 6, "to": 9}]})), "outside the x axis")
+        labelled = graph() | {"functions": [{"expr": "x^2", "label": "y = f(x)", "label_x": 1.5}, {"expr": "x", "label": "y = x"}]}
+        self.assertTrue(self.check(exam(q(labelled)))["ok"])
 
     def test_graph_axes_and_kinds(self):
         self.assertError(exam(q(graph() | {"x": {"min": 3, "max": 1}})), r"\.x: min must be less than max")
