@@ -457,6 +457,9 @@ def semantics(exam: dict) -> dict:
     c = _Checker(maths=bool(re.search(r"math", f"{exam.get('subject') or ''} {exam.get('learning_area') or ''}", re.I)))
     total = 0.0
     questions = 0
+    if exam.get("assessment_type") == "Worksheet" and len(exam["sections"]) > 1:
+        c.warn("sections[1]", "a worksheet shows no sections (its questions are numbered straight through): keep all "
+                              "its questions in one section.")
     names = [s["name"] for s in exam["sections"]]
     if len(set(names)) != len(names):
         c.warn("sections", f"section names repeat ({', '.join(names)}).")

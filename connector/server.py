@@ -135,7 +135,8 @@ uses in their browser. Changes you save appear in their open editor within a cou
 and adjust as you go. {USE_THE_TOOLS}
 
 A worksheet is the same thing with assessment_type "Worksheet" (and task e.g. "Worksheet", class_code e.g.
-"10MM1"): no cover page, the class details in a header on page 1.
+"10MM1"): no cover page, the class details in a header on page 1, and just questions: put them all in one section
+(its heading isn't printed). Build it in steps by adding questions to that section with edit_exam.
 
 New exam or worksheet: call get_exam_format once, then build it in steps so the teacher watches it appear:
 create_exam with the cover details and the first section, then edit_exam with one add_section per further section.

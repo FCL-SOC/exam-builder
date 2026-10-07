@@ -74,6 +74,9 @@ class ValidateTests(unittest.TestCase):
         r = self.check(exam(q(LINES), assessment_type="Worksheet", task="Worksheet", class_code="10MM1"))
         self.assertTrue(r["ok"], r)
         self.assertError(exam(q(LINES), class_code="X" * 21), "class_code")
+        two = exam(q(LINES), assessment_type="Worksheet")
+        two["sections"].append({"name": "B", "questions": [q(LINES)]})
+        self.assertWarning(two, "a worksheet shows no sections")
 
     def assertWarning(self, ex, pattern):
         r = self.check(ex)

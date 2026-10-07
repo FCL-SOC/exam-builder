@@ -302,7 +302,7 @@
     .sheet { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; }
     .cover, .body { break-after: page; }
     .sec { break-before: page; }
-    .ws-head + .seclist > .sec:first-child { break-before: auto; }  /* a worksheet's first section sits under its header */
+    .ws-head + .seclist > .sec { break-before: auto; }  /* a worksheet has no sections to start pages */
     .item { break-inside: avoid; }
     .ed:empty:not(td), .sec-note:empty, .ctl, .add, .grip, .tip { display: none !important; }
     .sec-head:has(.desc:empty) .sep, .unitwrap:has(.unit:empty) { display: none; }
@@ -1201,13 +1201,15 @@ function renderPaper() {
     <div class="phones">${esc(settings.notice)}</div>
   </section>`;
 
-  const sections = ex.sections.map(s => `<div class="sec"${node(s, ex.sections, "sec")}>
+  // A worksheet is just questions: no section headings, numbered straight through.
+  const first = ex.sections.map((s, si) => ws ? ex.sections.slice(0, si).reduce((n, x) => n + x.questions.length, 0) : 0);
+  const sections = ex.sections.map((s, si) => `<div class="sec"${node(s, ex.sections, "sec")}>${ws ? "" : `
       <div class="sec-head">Section ${editable("span", "sname", s, "name", "plain", "A")}<span class="sep">: </span>${editable("span", "desc", s, "description", "plain", "Section description")}${ed ? `
         <span class="sctl ctl"><span class="handle h-sec" title="Drag to move this section">⠿</span>
           To be answered: ${editable("span", "num", s, "to_answer", "number", "all")}
           <button data-act="del" title="Delete section">✕</button></span>` : ""}</div>
-      ${editable("p", "sec-note", s, "instructions", "rich", "Section instructions (optional)")}
-      <div class="qlist"${list(s.questions, "questions", ".h-d0")}>${s.questions.map((q, i) => itemHtml(q, s.questions, 0, i)).join("")}</div>
+      ${editable("p", "sec-note", s, "instructions", "rich", "Section instructions (optional)")}`}
+      <div class="qlist"${list(s.questions, "questions", ".h-d0")}>${s.questions.map((q, i) => itemHtml(q, s.questions, 0, first[si] + i)).join("")}</div>
       ${ed ? `<button class="add" data-act="add-question">+ Question</button>` : ""}
     </div>`).join("");
 
@@ -1219,7 +1221,7 @@ function renderPaper() {
   </section>`;
 
   const body = `<section class="sheet body">${ws ? wsHead : ""}<div class="seclist"${list(ex.sections, "sections", ".h-sec")}>${sections}</div>
-    ${ed ? `<button class="add" data-act="add-section">+ Section</button>` : ""}</section>`;
+    ${ed && !ws ? `<button class="add" data-act="add-section">+ Section</button>` : ""}</section>`;
 
   // Rebuilding empties the paper for a moment, which can clamp the scroll just as paginate() can.
   const paper = $("#paper"), wrap = $("#paper-wrap"), keepTop = wrap.scrollTop;
@@ -2045,7 +2047,7 @@ function paginate() {
   let pageStart = 0;
   cands.forEach((el, i) => {
     const y = ys[i];
-    const forced = (el.classList.contains("sec") && i > 0) || el.classList.contains("newpage");
+    const forced = (el.classList.contains("sec") && i > 0 && !isWorksheet(exam)) || el.classList.contains("newpage");
     // ponytail: past the page end already means the question before was taller than a page; this one starts a
     // new page, but the preview doesn't draw that question's overflow as a page of its own.
     if (y - pageStart >= 1 && (forced || y - pageStart > pageH || ends[i] - pageStart > pageH)) {
