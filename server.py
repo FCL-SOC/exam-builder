@@ -237,6 +237,30 @@ class ExamStore:
             dst.close()
 
 
+class Feedback:
+    """Suggestions teachers send from the Feedback button, kept in the exam database (so the startup backup has them)."""
+
+    MAX_TEXT = 5000
+
+    def __init__(self, path):
+        self._conn = sqlite3.connect(str(path), check_same_thread=False)
+        self._conn.execute("CREATE TABLE IF NOT EXISTS feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT "
+                           "NOT NULL, owner TEXT NOT NULL, page TEXT NOT NULL, text TEXT NOT NULL)")
+        self._conn.commit()
+        self._lock = threading.Lock()
+
+    def add(self, owner, page, text):
+        with self._lock:
+            self._conn.execute("INSERT INTO feedback (created_at, owner, page, text) VALUES (?, ?, ?, ?)",
+                               (datetime.now().isoformat(timespec="seconds"), owner, page, text))
+            self._conn.commit()
+
+    def all(self):
+        with self._lock:
+            rows = self._conn.execute("SELECT created_at, owner, page, text FROM feedback ORDER BY id DESC").fetchall()
+        return [{"created_at": c, "owner": o, "page": p, "text": t} for c, o, p, t in rows]
+
+
 class ClaudeExtension:
     """
     The Claude Desktop extension, personalised per teacher: their staff code and the connector's address are
@@ -504,6 +528,7 @@ class Handler(SimpleHTTPRequestHandler):
     store = None     # an ExamStore, set by main() or by the tests
     settings = None  # a SchoolSettings, set by main() or by the tests
     plans = None     # an ExamStore for lesson plans (table lesson_plans), set by main() or by the tests
+    feedback = None  # a Feedback, set by main() or by the tests
     claude = ClaudeExtension()  # the Claude Desktop extension download
 
     # Windows builds this map from the registry, which sometimes has .js as text/plain.
@@ -671,6 +696,9 @@ class Handler(SimpleHTTPRequestHandler):
             if self._pin_ok(pin_header):
                 self.settings.delete_logo()
                 self._json({"ok": True})
+        elif path == "/api/settings/feedback" and method == "GET":
+            if self._pin_ok(pin_header):
+                self._json(self.feedback.all())
         else:
             self._json({"error": "Not found."}, 404)
         return True
@@ -739,8 +767,25 @@ class Handler(SimpleHTTPRequestHandler):
         """/api/exams/… → the exams, /api/plans/… → the lesson plans."""
         return {"exams": self.store, "plans": self.plans}.get(parts[0] if parts else "")
 
+    def _feedback_route(self):
+        """POST /api/feedback {text, page}: anyone may send a suggestion; the staff code, if given, says who."""
+        url = urlparse(self.path)
+        if url.path.rstrip("/") != "/api/feedback":
+            return False
+        body = self._read_json(16 * 1024)
+        if body is None:
+            return True
+        text = body.get("text")
+        if not isinstance(text, str) or not text.strip() or len(text) > Feedback.MAX_TEXT:
+            self._json({"error": f"Write your suggestion (up to {Feedback.MAX_TEXT} characters)."}, 400)
+            return True
+        owner = normalise_owner(parse_qs(url.query).get("owner", [""])[0])
+        self.feedback.add(owner, str(body.get("page") or "")[:40], text.strip())
+        self._json({"ok": True})
+        return True
+
     def do_POST(self):
-        if not self._import_route("POST") and not self._settings_route("POST"):
+        if not self._import_route("POST") and not self._settings_route("POST") and not self._feedback_route():
             self._json({"error": "Not found."}, 404)
 
     def do_PUT(self):
@@ -786,6 +831,7 @@ def main():
     DATA.mkdir(exist_ok=True)
     Handler.store = ExamStore(DATA / "exams.db")
     Handler.plans = ExamStore(DATA / "exams.db", table="lesson_plans", details=_PLAN_DETAILS)
+    Handler.feedback = Feedback(DATA / "exams.db")
     Handler.settings = SchoolSettings(DATA)
     backup_on_startup(Handler.store, DATA / "backups")
     httpd = ThreadingHTTPServer(("0.0.0.0", port), Handler)

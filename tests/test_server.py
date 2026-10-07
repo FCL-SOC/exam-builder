@@ -286,6 +286,7 @@ class HttpTests(unittest.TestCase):
         server.Handler.plans = server.ExamStore(Path(self.tmp.name) / "exams.db", table="lesson_plans",
                                                 details=server._PLAN_DETAILS)
         server.Handler.settings = server.SchoolSettings(Path(self.tmp.name))
+        server.Handler.feedback = server.Feedback(Path(self.tmp.name) / "exams.db")
         self.httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
         self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
@@ -295,6 +296,7 @@ class HttpTests(unittest.TestCase):
         self.httpd.server_close()
         server.Handler.store._conn.close()
         server.Handler.plans._conn.close()
+        server.Handler.feedback._conn.close()
         self.tmp.cleanup()
 
     def call(self, method, path, body=None, headers=None, raw=None):
@@ -374,6 +376,15 @@ class HttpTests(unittest.TestCase):
     def test_serves_frontend(self):
         with urllib.request.urlopen(self.base + "/") as r:
             self.assertIn(b"Exam Assistant", r.read())
+
+    def test_feedback_is_kept_and_read_with_the_admin_pin(self):
+        self.assertEqual(self.call("POST", "/api/feedback?owner=abc", {"text": "Add network diagrams", "page": "exams"})[0], 200)
+        self.assertEqual(self.call("POST", "/api/feedback", {"text": "Anonymous idea"})[0], 200)
+        self.assertEqual(self.call("POST", "/api/feedback", {"text": "  "})[0], 400)
+        self.call("POST", "/api/settings/pin", {"pin": "1234"})
+        self.assertEqual(self.call("GET", "/api/settings/feedback")[0], 403)
+        status, rows = self.call("GET", "/api/settings/feedback", headers={"X-Admin-PIN": "1234"})
+        self.assertEqual((status, [(r["owner"], r["text"]) for r in rows]), (200, [("", "Anonymous idea"), ("ABC", "Add network diagrams")]))
 
     def test_settings_need_the_admin_pin(self):
         status, pub = self.call("GET", "/api/settings")

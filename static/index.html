@@ -184,6 +184,10 @@
   .al-r > .ans { justify-content: flex-end; }
   .end { text-align: center; font-weight: 700; margin-top: 8mm; }
   .end-book { text-align: right; font-weight: 700; margin: 6mm 0 0; }
+  #fb-text { width: 100%; font: inherit; }
+  .fb-list { max-height: 240px; overflow: auto; border: 1px solid var(--border); border-radius: 4px; }
+  .fb-row { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .fb-meta { font-size: 12px; color: #777; } .fb-text { white-space: pre-wrap; }
   /* What print hides, hidden on screen for a moment while paginate() measures the last page as it prints. */
   #paper.printlike :is(.ed:empty:not(td), .sec-note:empty, .ctl, .add, .grip, .tip, .img-todo, .hint) { display: none !important; }
   #paper.printlike :is(.pbreak:not(.end-book), .item.newpage) { margin-top: 0 !important; }
@@ -261,8 +265,8 @@
     #graph-panel select { font-size: 14px; }
     .logo-hint { display: flex; align-items: center; justify-content: center; height: 24mm; width: 60mm; margin: 0 auto 1mm;
                  border: 1.5px dashed #c8b89a; border-radius: 4px; color: #8a7a5a; font: 12px 'Segoe UI', Arial, sans-serif; text-align: center; }
-    #school-btn { background: none; color: #fff; border-color: rgba(255,255,255,.6); font-size: 13px; }
-    #school-btn:hover { border-color: #fff; }
+    #school-btn, #feedback-btn { background: none; color: #fff; border-color: rgba(255,255,255,.6); font-size: 13px; }
+    #school-btn:hover, #feedback-btn:hover { border-color: #fff; }
     #claude-btn { font-size: 13px; border-color: #fff; }  /* filled, so teachers notice it */
     .eq input.latex { display: block; width: 80%; margin: 4px auto 0; font: 12px Consolas, 'Courier New', monospace; }
 
@@ -361,6 +365,7 @@
     <label for="code">Staff code</label>
     <input id="code" maxlength="3" autocomplete="off" placeholder="ABC">
     <button id="claude-btn" title="Write and edit exams with Claude" hidden>Use with Claude</button>
+    <button id="feedback-btn" title="Suggest an improvement or report a problem">Feedback</button>
     <button id="school-btn" title="School name, logo, cover wording, fonts and colours">School settings</button>
     <span id="status"></span>
   </header>
@@ -400,7 +405,7 @@
       </div>
       <div id="home-list"></div>
       <p class="note">Your staff code identifies you; it is not a password. Exams are private to your code
-        unless you tick <b>Share with faculty</b>, which puts a read-only copy on the Faculty shelf.</p>
+        unless you share them on the Faculty shelf (in <b>Exam settings</b>), for others to view or to edit.</p>
     </div>
   </main>
 
@@ -461,6 +466,17 @@
   <div class="gp-head"><b>Graph</b><span class="grow"></span><button id="gp-close" class="primary">Done</button></div>
   <div id="gp-body"></div>
 </aside>
+<dialog id="feedback">
+  <form method="dialog" onsubmit="return false" class="settings">
+    <h3>Feedback</h3>
+    <p class="note">An idea, something that doesn't work, anything you'd like changed. It is kept for whoever looks
+      after Exam Assistant at your school, with your staff code.</p>
+    <textarea id="fb-text" rows="6" maxlength="5000" placeholder="Your suggestion"></textarea>
+    <p class="bad" id="fb-err"></p>
+    <div class="btns"><span class="grow"></span><button type="button" id="fb-cancel">Cancel</button>
+      <button type="button" class="primary" id="fb-send">Send</button></div>
+  </form>
+</dialog>
 <dialog id="school">
   <form method="dialog" onsubmit="return false">
     <div id="school-lock" class="settings">
@@ -500,6 +516,9 @@
       <h3>App colours</h3>
       <label>Main colour <input id="st-theme_colour" type="color"></label>
       <label>Highlight colour <input id="st-accent_colour" type="color"></label>
+      <h3>Feedback from teachers</h3>
+      <p class="note">Suggestions sent with the Feedback button, newest first. <button type="button" id="st-feedback-show">Show feedback</button></p>
+      <div id="st-feedback"></div>
       <p class="bad" id="school-err"></p>
       <div class="btns"><button type="button" id="st-change-pin">Change PIN</button><span class="grow"></span>
         <button type="button" id="school-close">Close</button><button type="button" class="primary" id="school-save">Save</button></div>
@@ -1927,6 +1946,29 @@ async function changePin() {
 }
 $("#st-body_font").append(...FONTS.map(([value, name]) => h("option", { value }, name)));
 $("#school-btn").onclick = openSchoolSettings;
+$("#feedback-btn").hidden = !!window.EXAM_DEMO;  // the online demo has nowhere to keep it
+$("#feedback-btn").onclick = () => { $("#fb-err").textContent = ""; $("#fb-send").disabled = false; $("#feedback").showModal(); $("#fb-text").focus(); };
+$("#fb-cancel").onclick = () => $("#feedback").close();
+$("#fb-send").onclick = async () => {
+  const text = $("#fb-text").value.trim();
+  if (!text) return void ($("#fb-err").textContent = "Write your suggestion first.");
+  $("#fb-send").disabled = true;
+  try {
+    await api(`/api/feedback?owner=${encodeURIComponent(code)}`, { method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ text, page: $("#editor-view").hidden ? "home" : "editor" }) });
+    $("#fb-text").value = "";
+    $("#feedback").close();
+    alert("Thanks, your feedback was sent.");
+  } catch (e) { $("#fb-err").textContent = e.message; $("#fb-send").disabled = false; }
+};
+$("#st-feedback-show").onclick = async () => {
+  try {
+    const rows = await adminCall("/api/settings/feedback", { method: "GET" });
+    $("#st-feedback").replaceChildren(rows.length ? h("div", { class: "fb-list" }, ...rows.map(r => h("div", { class: "fb-row" },
+      h("div", { class: "fb-meta" }, `${new Date(r.created_at).toLocaleString()} · ${r.owner || "no staff code"} · ${r.page}`),
+      h("div", { class: "fb-text" }, r.text)))) : h("p", { class: "note" }, "No feedback yet."));
+  } catch { /* the message is shown */ }
+};
 
 // "Use with Claude": only when the Claude connector runs on this server (never in the demo).
 fetch("/claude/status").then(r => r.ok ? r.json() : {}).then(j => { $("#claude-btn").hidden = !j.available; }).catch(() => {});
