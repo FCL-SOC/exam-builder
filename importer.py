@@ -207,10 +207,14 @@ def _graph(spec, row_no, problems):
         if key in ("x", "y"):
             axis(key, piece)
         elif key in ("fn", "function", "y1"):
-            expr = re.sub(r"\s+dashed\b", "", value, flags=re.I).strip()
+            labelled = re.search(r"\s+label\s+(.*)$", value, re.I)
+            body, label = (value[:labelled.start()], labelled.group(1)) if labelled else (value, "")
+            expr = re.sub(r"\s+dashed\b", "", body, flags=re.I).strip()
             if expr:
-                g["functions"].append({"expr": expr[:200], "from": None, "to": None,
-                                       "dashed": bool(re.search(r"\bdashed\b", value, re.I))})
+                fn = {"expr": expr[:200], "from": None, "to": None, "dashed": bool(re.search(r"\bdashed\b", body, re.I))}
+                if label.strip():
+                    fn["label"] = label.strip()[:40]
+                g["functions"].append(fn)
         elif key == "points":
             # Spaces as well as commas: a comma inside a hand-written CSV cell splits the row,
             # so "(1 2)(3 4)" is the safe form and "(1,2),(3,4)" works when the file quotes properly.
@@ -515,7 +519,7 @@ PREAMBLE = [
     ["GRAPH SETTINGS (in the graph column, separated by ;)"],
     ["x=MIN..MAX [step N] [label TEXT]      the horizontal axis, e.g. x=0..10 step 2 label Time (s)"],
     ["y=MIN..MAX [step N] [label TEXT]      the vertical axis"],
-    ["fn=EXPRESSION [dashed]                a curve, e.g. fn=x^2-3 or fn=2sin(x) dashed. Repeat for more."],
+    ["fn=EXPRESSION [dashed] [label TEXT]   a curve, e.g. fn=x^2-3 label y = f(x), or fn=2sin(x) dashed. Repeat for more."],
     ["points=(1 2)(3 4)                     plotted points (spaces, so a .csv cell stays in one piece)"],
     ["grid=yes|no; numbers=yes|no; fit=yes|no"],
     ["boxplot=2 6 9 13 18                   a box plot (min q1 median q3 max) instead of axes and curves"],

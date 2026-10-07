@@ -75,7 +75,7 @@ editor and never printed. A multiple-choice question is usually worth 1 mark; it
 
 ```json
 {"type": "graph", "x": {"min": -5, "max": 5, "step": 1, "label": "x"}, "y": {"min": -5, "max": 5},
- "functions": [{"expr": "x^2 - 2"}, {"expr": "2x + 1", "from": 0, "to": 3, "dashed": true}],
+ "functions": [{"expr": "x^2 - 2", "label": "y = f(x)"}, {"expr": "2x + 1", "from": 0, "to": 3, "dashed": true}],
  "points": [{"x": 1, "y": -1, "label": "A"}, {"x": 2, "y": 2, "open": true}],
  "width": 60}
 ```
@@ -83,6 +83,8 @@ editor and never printed. A multiple-choice question is usually worth 1 mark; it
 - **Expressions** are in `x` and use the editor's own parser: `^` for powers, implied multiplication
   (`3sin(2x)`, `(x+1)(x-1)`, `2πx`), `sqrt abs sin cos tan asin acos atan ln log exp`, constants `pi` and `e`.
   `log` is base 10, `ln` is natural log. No other variables (`t`, `a` …) are understood.
+- **Labels**: `label` prints beside the curve (`y = f(x)`, `y = x^2`; `^2` is raised). It goes near the right-hand end
+  automatically; set `label_x` to choose where along `x` when two labels would meet.
 - **Blank axes** for students to sketch on: give `x` and `y` and no functions.
 - `fit: true` draws a least-squares line of best fit through the points; `connect: true` joins them (time series).
 - `width` is a percentage of the column (25–100, default 70). `grid` and `numbers` default to on.

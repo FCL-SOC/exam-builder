@@ -148,6 +148,11 @@ class StructureTests(unittest.TestCase):
         self.assertEqual(spaced["sections"][0]["questions"][0]["blocks"][1]["points"],
                          quoted["sections"][0]["questions"][0]["blocks"][1]["points"])
 
+    def test_functions_can_be_labelled(self):
+        exam, _ = importer.parse(sheet(",question,S,1,,,,,,", ",graph,,,,,,,fn=x^2 label y = f(x); fn=2x dashed,"), "x.csv")
+        fns = exam["sections"][0]["questions"][0]["blocks"][1]["functions"]
+        self.assertEqual([(f["expr"], f["dashed"], f.get("label")) for f in fns], [("x^2", False, "y = f(x)"), ("2x", True, None)])
+
     def test_a_comma_split_graph_cell_fails_loudly_rather_than_losing_data(self):
         """A .csv comma cuts the cell short; that must be an error, never a silently empty graph."""
         for spec in ("points=(1", "boxplot=2", "histogram="):

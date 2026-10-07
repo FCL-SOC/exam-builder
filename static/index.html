@@ -1442,6 +1442,20 @@ function graphLayout(b) {
     ix: px => X.min + (px - padL) / plotW * xr, iy: py => Y.max - (py - padT) / plotH * yr };
 }
 
+// A function's label, e.g. "y = f(x)", beside its curve: at label_x if given, else the last point near the right whose
+// height is comfortably inside the plot. ^2 or ^{-1} is raised.
+function fnLabel(f, fn, from, to, L) {
+  const { Y, sx, sy } = L, inside = y => Number.isFinite(y) && y > Y.min + L.yr * .08 && y < Y.max - L.yr * .08;
+  let x = Number.isFinite(f.label_x) ? f.label_x : null;
+  for (let i = 60; x === null && i >= 0; i--) { const t = from + (to - from) * (0.25 + 0.7 * i / 60); if (inside(fn(t))) x = t; }
+  const y = x === null ? NaN : fn(x);
+  if (!Number.isFinite(y)) return "";
+  const right = sx(x) > L.padL + L.plotW * .6;
+  const text = esc(f.label).replace(/\^(\{([^}]*)\}|-?[\w.]+)/g, (m, all, braced) => `<tspan baseline-shift="super" font-size="2.6">${braced ?? all}</tspan>`);
+  return `<text x="${(sx(x) + (right ? -1.5 : 1.5)).toFixed(2)}" y="${(sy(y) - 2).toFixed(2)}" text-anchor="${right ? "end" : "start"}" ` +
+    `font-size="3.6" font-style="italic" paint-order="stroke" stroke="#fff" stroke-width="1.2">${text}</text>`;
+}
+
 let graphSeq = 0;
 function graphSvg(b) {
   if (b.kind === "boxplot") return boxplotSvg(b);
@@ -1485,6 +1499,7 @@ function graphSvg(b) {
       if (ok) { d += `${pen ? "L" : "M"}${f2(sx(x))} ${f2(clamp(sy(y), -2000, 2000))}`; pen = true; prevY = y; } else { pen = false; }
     }
     if (d) parts.push(`<path class="g-fn${f.dashed ? " dashed" : ""}" d="${d}" clip-path="url(#${clip})"/>`);
+    if (d && f.label) parts.push(fnLabel(f, fn, from, to, L));
   }
   const pts = (b.points || []).filter(p => Number.isFinite(+p.x) && Number.isFinite(+p.y));
   if (b.fit && pts.length >= 2) {  // least-squares line of best fit through the points
@@ -1629,7 +1644,9 @@ function buildGraphPanel() {
     const expr = text(f, "expr", { class: "expr", placeholder: "e.g. x^2 - 2", after: showErr });
     showErr(expr);
     return [h("div", { class: "gp-row" }, "y =", expr, remove(b.functions, f)), err,
-      h("div", { class: "gp-row gp-note" }, "for x from", number(f, "from", { optional: true, placeholder: "min" }), "to", number(f, "to", { optional: true, placeholder: "max" }), check(f, "dashed", "dashed"))];
+      h("div", { class: "gp-row gp-note" }, "for x from", number(f, "from", { optional: true, placeholder: "min" }), "to", number(f, "to", { optional: true, placeholder: "max" }), check(f, "dashed", "dashed")),
+      h("div", { class: "gp-row gp-note" }, "label", text(f, "label", { placeholder: "e.g. y = f(x)", style: "width:110px" }),
+        "at x =", number(f, "label_x", { optional: true, placeholder: "auto", style: "width:60px" }))];
   };
   const ptRow = p => h("div", { class: "gp-row" }, "(", number(p, "x"), ",", number(p, "y"), ")",
     text(p, "label", { placeholder: "label", style: "width:60px" }), check(p, "open", "open"), remove(b.points, p));

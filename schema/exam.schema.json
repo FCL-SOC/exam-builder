@@ -718,6 +718,18 @@
               },
               "dashed": {
                 "type": "boolean"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 40,
+                "description": "Printed beside the curve, e.g. 'y = f(x)'. ^2 is raised."
+              },
+              "label_x": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "Where along x to put the label; leave out to place it automatically."
               }
             }
           }
