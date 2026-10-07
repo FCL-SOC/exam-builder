@@ -108,6 +108,23 @@ class SchoolModeTests(unittest.TestCase):
         self.assertEqual(asyncio.run(go()), ["get_exam_format", "list_exams", "get_exam", "create_exam", "edit_exam",
                                              "restore_version", *PLAN_TOOLS])
 
+    def test_every_kind_of_task_can_be_made_and_built_up(self):
+        """Exams, tests, CATs, SACs, quizzes, assignments, practice exams and worksheets: create with the first
+        section, then build up the way the instructions say (a section at a time; a worksheet a question at a time)."""
+        kinds = connector.exam_format.SCHEMA["properties"]["assessment_type"]["enum"]
+        for kind in kinds:
+            ws = kind == "Worksheet"
+            cover = {"assessment_type": kind, **({"task": "Worksheet", "class_code": "11PH1"} if ws else {})}
+            uid = self.create({**cover, "sections": [{"name": "A", "questions": [q("First question.")]}]})
+            section = self.ids(uid)[0][0]
+            change = ({"op": "add", "to": section, "items": [q("Second question.", 2)]} if ws else
+                      {"op": "add_section", "section": {"name": "B", "questions": [q("Second question.", 2)]}})
+            r = self.call("edit_exam", exam_id=uid, changes=[change])
+            self.assertTrue(r["ok"] and not r["warnings"], (kind, r))
+            saved = self.saved(uid)["exam"]
+            self.assertEqual((saved["assessment_type"], len(saved["sections"]), saved["total_marks"]),
+                             (kind, 1 if ws else 2, 3), kind)
+
     def test_staff_code_is_required(self):
         del os.environ["STAFF_CODE"]
         self.assertIn("click Use with Claude", self.call("list_exams")["tool_error"])
