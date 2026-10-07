@@ -82,7 +82,7 @@ CREATE INDEX IF NOT EXISTS idx_{table}_shelf ON {table}(shared, learning_area);
 """
 # Details shown on the exam lists come straight out of the saved exam JSON (no schema change needed).
 _DETAILS = {"topic": "unit", "assessment_type": "assessment_type", "year_level": "year_level", "task": "task",
-            "semester": "semester", "year": "year", "total_marks": "total_marks"}
+            "semester": "semester", "year": "year", "total_marks": "total_marks", "shared_edit": "shared_edit"}
 # Lesson plans live in their own table, stored and versioned exactly like exams.
 _PLAN_DETAILS = {"topic": "topic", "year_level": "year_level", "class_code": "class_code", "lesson_date": "lesson_date"}
 
@@ -142,18 +142,24 @@ class ExamStore:
     def save(self, owner, uid, exam, base=None, by=""):
         """
         Upsert; returns the new updated_at. False if the uid belongs to another teacher — a colliding uid
-        must never silently move an exam between teachers.
+        must never silently move an exam between teachers — unless that teacher shared it as editable: then the
+        save goes in, the exam stays theirs, and how it is shared stays their choice.
 
         `base` is the updated_at the change was made from. If the stored exam has moved on since (another
         tab, or Claude, saved in between), nothing is written and Conflict is raised, so the caller can merge
         rather than overwrite. No base means "overwrite", which is how saves worked before.
         """
         with self._lock:
-            row = self._conn.execute(f"SELECT owner, updated_at, updated_by FROM {self.table} WHERE exam_uid = ?",
+            row = self._conn.execute(f"SELECT owner, updated_at, updated_by, body FROM {self.table} WHERE exam_uid = ?",
                                      (uid,)).fetchone()
             if row is not None and row["owner"] != owner:
-                logger.warning("Rejected save: %s does not own exam %s", owner, uid)
-                return False
+                stored = json.loads(row["body"])
+                if not (stored.get("shared") and stored.get("shared_edit")):
+                    logger.warning("Rejected save: %s does not own exam %s", owner, uid)
+                    return False
+                exam = {**exam, "shared": True, "shared_edit": True}
+                by = by or owner.lower()  # so the owner's open editor can say who changed it
+                owner = row["owner"]
             if base and row is not None and row["updated_at"] != base:
                 raise Conflict(row["updated_at"], row["updated_by"])
             now = self._next_timestamp()

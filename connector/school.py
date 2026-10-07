@@ -510,7 +510,8 @@ class School:
         The version before is kept for restore_version unless keep_history is False."""
         for _ in range(4):
             current = self.read(owner, uid)
-            if current["owner"] != owner:
+            shared_edit = current["exam"].get("shared") and current["exam"].get("shared_edit")
+            if current["owner"] != owner and not shared_edit:
                 raise SchoolError(f"That exam belongs to {current['owner']}, so it can't be changed. "
                                   "Make a copy in the editor first (Duplicate to my exams).")
             before = current["exam"]

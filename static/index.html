@@ -439,7 +439,13 @@
       </select>
     </label>
     <label class="chk"><input type="checkbox" id="s-teacher"> Print my staff code in the Teacher box</label>
-    <label class="chk"><input type="checkbox" id="s-shared"> Share with faculty (read-only on the Faculty shelf)</label>
+    <label>Faculty shelf
+      <select id="s-share" title="Only the teacher who made it can change this">
+        <option value="">Not shared</option>
+        <option value="view">Shared: others can view and duplicate it</option>
+        <option value="edit">Shared: others can edit it</option>
+      </select>
+    </label>
     <label class="chk"><input type="checkbox" id="s-nowrite"> Print a "Do not write in this area" strip down the outer margin</label>
     <p class="note">Everything else on the cover is edited by clicking it. In the instructions box, a line starting
       with <b>##</b> is a heading and <b>{calculator}</b> inserts the calculator rule above.</p>
@@ -813,7 +819,7 @@ async function pullRemote() {
     const ignore = { title: 0, total_marks: 0 };
     if (same({ ...exam, ...ignore }, { ...theirs, ...ignore })) { dirty = false; clearTimeout(saveTimer); }
     else scheduleSave(false);  // this tab's own edits still need saving on top
-    const who = r.updated_by === "claude" ? "Claude" : "another window";
+    const who = r.updated_by === "claude" ? "Claude" : r.updated_by ? r.updated_by.toUpperCase() : "another window";
     notice = report.whole ? `replaced by ${who}'s version: Undo brings yours back`
       : report.conflicts ? `you and ${who} changed the same thing, so your version was kept` : notice;
     setStatus(notice ? `Updated by ${who} · ${notice}` : `Updated by ${who}`);
@@ -933,14 +939,14 @@ const foldable = key => ({ open: !folded.has(key), ontoggle: e => {
 } });
 
 function homeRow(r) {
-  const mine = r.owner === code;
+  const mine = r.owner === code, editable = !mine && r.shared && r.shared_edit;
   return h("div", { class: "row" },
     h("div", { class: "t" },
       h("div", {}, r.topic || r.title || "Untitled exam"),
       h("div", { class: "details" }, [r.assessment_type, r.year_level && `Year ${r.year_level}`, r.task,
         r.semester && `Semester ${r.semester} ${r.year || ""}`.trim(), r.total_marks != null && marksText(Number(r.total_marks))].filter(Boolean).join(" · "))),
-    h("span", { class: "m" }, `${mine ? "" : r.owner + " · "}${r.shared ? "shared · " : ""}updated ${new Date(r.updated_at).toLocaleDateString()}`),
-    h("button", { onclick: () => openExam(r.uid) }, mine ? "Open" : "View"),
+    h("span", { class: "m" }, `${mine ? "" : r.owner + " · "}${r.shared ? (r.shared_edit ? "shared, editable · " : "shared · ") : ""}updated ${new Date(r.updated_at).toLocaleDateString()}`),
+    h("button", { onclick: () => openExam(r.uid) }, mine ? "Open" : editable ? "Edit" : "View"),
     h("button", { onclick: () => duplicate(r.uid) }, mine ? "Duplicate" : "Duplicate to my exams"),
     mine && h("button", { class: "danger", onclick: () => deleteExam(r) }, "Delete"));
 }
@@ -961,12 +967,13 @@ async function newExam(worksheet = false) {
 async function openExam(id) {
   try {
     const r = await api(`/api/exams/${id}?owner=${code}`);
-    uid = id; exam = { ...defaults(), ...r.exam }; examOwner = r.owner; readOnly = r.owner !== code;
+    uid = id; exam = { ...defaults(), ...r.exam }; examOwner = r.owner;
+    readOnly = r.owner !== code && !(r.exam.shared && r.exam.shared_edit);  // shared as editable: anyone can edit
     dirty = false;
     version = r.updated_at; baseJson = JSON.stringify(r.exam);
     const added = ensureIds(exam);  // exams from before ids existed
     openEditor();
-    setStatus(readOnly ? `Viewing ${r.owner}'s shared exam (read-only)` : "Saved");
+    setStatus(readOnly ? `Viewing ${r.owner}'s shared exam (read-only)` : r.owner !== code ? `Editing ${r.owner}'s shared exam` : "Saved");
     if (added && !readOnly) scheduleSave(false);
   } catch (e) {
     alert(`Could not open that exam: ${e.message}`);
@@ -2026,14 +2033,16 @@ $("#settings-btn").onclick = () => {
   $("#s-subject").value = exam.subject || "";
   $("#s-calc").value = exam.calculator || "none";
   $("#s-teacher").checked = !!exam.show_teacher;
-  $("#s-shared").checked = !!exam.shared;
+  $("#s-share").value = !exam.shared ? "" : exam.shared_edit ? "edit" : "view";
+  $("#s-share").disabled = examOwner !== code;
   $("#s-nowrite").checked = exam.no_write !== false;
   $("#settings").showModal();
 };
 for (const [id, key, prop] of [["#s-area", "learning_area", "value"], ["#s-year", "year_level", "value"], ["#s-type", "assessment_type", "value"], ["#s-topic", "unit", "value"], ["#s-subject", "subject", "value"], ["#s-calc", "calculator", "value"],
-  ["#s-teacher", "show_teacher", "checked"], ["#s-shared", "shared", "checked"], ["#s-nowrite", "no_write", "checked"]]) {
+  ["#s-teacher", "show_teacher", "checked"], ["#s-nowrite", "no_write", "checked"]]) {
   $(id).addEventListener(prop === "checked" ? "change" : "input", () => { exam[key] = $(id)[prop]; changed(); });
 }
+$("#s-share").onchange = () => { const v = $("#s-share").value; exam.shared = !!v; exam.shared_edit = v === "edit"; changed(); };
 $("#s-reset").onclick = () => { exam.instructions = settings.instructions; changed(); };
 
 // Shrink the A4 preview to fit narrow screens (printing is always full size).

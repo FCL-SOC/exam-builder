@@ -310,6 +310,15 @@ class SchoolModeTests(unittest.TestCase):
         r = self.call("edit_exam", exam_id="theirs-0001", changes=[{"op": "remove", "id": "x1"}])
         self.assertIn("belongs to XYZ", r["tool_error"])
 
+    def test_shared_as_editable_claude_can_change_it_for_another_teacher(self):
+        http("PUT", "exams/theirs-0002", {"unit": "Shared", "shared": True, "shared_edit": True, "sections": [
+            {"id": "s", "name": "A", "questions": [dict(q("x"), id="x1", parts=[])]}]}, owner="XYZ")
+        self.assertFalse(self.call("get_exam", exam_id="theirs-0002")["read_only"])
+        r = self.call("edit_exam", exam_id="theirs-0002", changes=[{"op": "add", "to": "s", "items": [q("Added by ABC's Claude")]}])
+        self.assertTrue(r["ok"], r)
+        saved = http("GET", "exams/theirs-0002", owner="XYZ")
+        self.assertEqual((saved["owner"], len(saved["exam"]["sections"][0]["questions"])), ("XYZ", 2))
+
     def test_sharing_setting_survives_edits(self):
         uid = self.create()
         exam = self.saved(uid)["exam"]
