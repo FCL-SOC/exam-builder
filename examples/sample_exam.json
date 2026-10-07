@@ -69,7 +69,7 @@
               "marks": 2,
               "blocks": [
                 {"type": "text", "value": "Hence find the $x$-intercepts of the graph of $y = f(x)$."},
-                {"type": "answer", "boxes": [{"label": "$x =$"}, {"label": "$x =$"}]}
+                {"type": "lines", "n": 8}
               ]
             },
             {
@@ -85,8 +85,7 @@
           "blocks": [
             {"type": "text", "value": "Solve the simultaneous equations"},
             {"type": "equation", "value": "\\begin{aligned} 2x + y &= 7 \\\\ x - y &= 2 \\end{aligned}"},
-            {"type": "box", "height_cm": 5},
-            {"type": "answer", "boxes": [{"label": "$x =$"}, {"label": "$y =$"}]}
+            {"type": "lines", "n": 12}
           ],
           "marks": 3,
           "parts": []
@@ -125,15 +124,14 @@
               "marks": 1,
               "blocks": [
                 {"type": "text", "value": "Write down the median height."},
-                {"type": "answer", "boxes": [{"label": "", "units": "cm"}]}
+                {"type": "lines", "n": 3}
               ]
             },
             {
               "marks": 2,
               "blocks": [
                 {"type": "text", "value": "Calculate the interquartile range."},
-                {"type": "box", "height_cm": 4},
-                {"type": "answer", "boxes": [{"label": "IQR =", "units": "cm"}]}
+                {"type": "lines", "n": 8}
               ]
             }
           ]

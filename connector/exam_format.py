@@ -263,9 +263,10 @@ def _unpaired_dollars(text: str) -> bool:
 
 
 class _Checker:
-    def __init__(self) -> None:
+    def __init__(self, maths: bool = False) -> None:
         self.errors: list[str] = []
         self.warnings: list[str] = []
+        self.maths = maths  # VCE maths papers give ruled lines for working and answers, never boxes
 
     def err(self, where: str, msg: str) -> None:
         self.errors.append(f"{where}: {msg}")
@@ -416,6 +417,9 @@ class _Checker:
                              for b in it.get("blocks") or [])
         if not (types & {"lines", "box", "answer", "choices", "graph"} or has_blank_cell):
             self.warn(where, "has no space to answer (lines, box, answer, choices, a graph, or blank table cells).")
+        if self.maths and types & {"box", "answer"}:
+            self.warn(where, "uses a box or answer box, but VCE maths papers give ruled lines for the working and the "
+                             "answer: use a lines block instead (about four lines per mark).")
         return float(marks)
 
 
@@ -450,7 +454,7 @@ def validate(exam: Any) -> dict:
 def semantics(exam: dict) -> dict:
     """The rules the editor applies when it draws and prints, over a structurally sound exam (one from the editor,
     or one that passed the schema). Same result shape as validate(); messages are not truncated."""
-    c = _Checker()
+    c = _Checker(maths=bool(re.search(r"math", f"{exam.get('subject') or ''} {exam.get('learning_area') or ''}", re.I)))
     total = 0.0
     questions = 0
     names = [s["name"] for s in exam["sections"]]

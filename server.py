@@ -346,6 +346,7 @@ DEFAULT_SETTINGS = {
     "accent_colour": "#B8860B",
     "style_guide": DEFAULT_STYLE_GUIDE,
     "plan_guide": DEFAULT_PLAN_GUIDE,
+    "extra_page": False,  # a lined "extra space for responses" page at the end of every exam
 }
 _GUIDES = ("style_guide", "plan_guide")
 FONTS = ("Calibri, Carlito, Arial, sans-serif", "Arial, Helvetica, sans-serif", "'Segoe UI', Arial, sans-serif",
@@ -366,6 +367,10 @@ def validate_setting(key, value):
         lo, hi = _NUMBER_LIMITS[key]
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not lo <= value <= hi:
             raise ValueError(f"{key.replace('_', ' ').capitalize()} must be a number from {lo} to {hi}.")
+        return value
+    if key == "extra_page":
+        if not isinstance(value, bool):
+            raise ValueError("Extra page must be on or off.")
         return value
     if key.endswith("_colour"):
         if not (isinstance(value, str) and _COLOUR_RE.match(value)):

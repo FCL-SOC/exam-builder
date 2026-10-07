@@ -217,6 +217,12 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(pub["school_name"], "Your School")
         self.assertEqual((pub["pin_set"], pub["has_logo"]), (False, False))
 
+    def test_extra_page_is_off_until_switched_on(self):
+        self.assertIs(self.settings.public()["extra_page"], False)
+        self.assertIs(self.settings.update({"extra_page": True})["extra_page"], True)
+        with self.assertRaises(ValueError):
+            self.settings.update({"extra_page": "yes"})
+
     def test_pin_set_check_and_change(self):
         self.assertTrue(self.settings.set_pin("1234"))
         self.assertTrue(self.settings.check_pin("1234"))
