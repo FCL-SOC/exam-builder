@@ -64,6 +64,12 @@ class ValidateTests(unittest.TestCase):
         self.assertFalse(r["ok"], r)
         self.assertTrue(any(re.search(pattern, e) for e in r["errors"]), r["errors"])
 
+    def test_maths_answer_space_is_lines(self):
+        boxed = q({"type": "text", "value": "Find $x$."}, {"type": "box", "height_cm": 4})
+        self.assertWarning(exam(boxed, subject="Mathematical Methods"), "VCE maths papers give ruled lines")
+        r = self.check(exam(boxed, subject="Physics"))
+        self.assertFalse(any("ruled lines" in w for w in r["warnings"]), r["warnings"])
+
     def test_a_worksheet_is_an_exam_with_a_class(self):
         r = self.check(exam(q(LINES), assessment_type="Worksheet", task="Worksheet", class_code="10MM1"))
         self.assertTrue(r["ok"], r)

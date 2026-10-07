@@ -119,10 +119,13 @@
   .item.newpage { break-before: page; }
   .blist:not(:has(.txt:not(:empty), .eq:not(:empty), .img, .lines, .box)) ~ .plist > .item:first-child { margin-top: 0; }
   .qhead { display: flex; justify-content: space-between; font-weight: 700; margin-bottom: 1.5mm; break-after: avoid; }
-  .irow { display: flex; gap: 2mm; }
+  .irow { display: flex; gap: 2mm; position: relative; }
   .irow .lbl { width: 7mm; flex-shrink: 0; font-weight: 700; }
   .irow .ibody { flex: 1; min-width: 0; }
-  .irow .mk { flex-shrink: 0; white-space: nowrap; padding-left: 3mm; }
+  /* The marks sit at the top right, over the body, so lines and boxes under every part reach the same right edge
+     whatever the marks say ("1 mark" is narrower than "12 marks"). Only a text block that opens a part makes room. */
+  .irow .mk { position: absolute; top: 0; right: 0; white-space: nowrap; }
+  .irow > .ibody > .blist > .blk:first-child:has(.txt) { padding-right: 20mm; }
   .txt { margin: 0 0 1.5mm; }
   .eq { text-align: center; margin: 2mm 0; font-size: 12pt; }
   .imgbox { margin: 2mm auto; max-width: 100%; }
@@ -472,6 +475,7 @@
       <label>School name size (pt) <input id="st-school_name_size" type="number" min="16" max="48" step="1"></label>
       <label>Cover title size (pt) <input id="st-title_size" type="number" min="14" max="40" step="1"></label>
       <label>Answer line gap (mm) <input id="st-line_spacing" type="number" min="6" max="14" step="0.5"></label>
+      <label class="chk"><input type="checkbox" id="st-extra_page"> End each exam with a lined page of extra space for responses</label>
       <h3>App colours</h3>
       <label>Main colour <input id="st-theme_colour" type="color"></label>
       <label>Highlight colour <input id="st-accent_colour" type="color"></label>
@@ -1207,7 +1211,7 @@ function renderPaper() {
       ${ed ? `<button class="add" data-act="add-question">+ Question</button>` : ""}
     </div>`).join("");
 
-  const extra = ws ? "" : `<section class="sheet extra">
+  const extra = ws || !settings.extra_page ? "" : `<section class="sheet extra">
     <div class="sec-head">Extra space for responses</div>
     <p class="sec-note">Clearly number all responses in this space.</p>
     <div class="lines"><div class="ln">${"<div></div>".repeat(24)}</div></div>
@@ -1739,11 +1743,11 @@ const FONTS = [["Calibri, Carlito, Arial, sans-serif", "Calibri"], ["Arial, Helv
   ["'Segoe UI', Arial, sans-serif", "Segoe UI"], ["'Times New Roman', Times, serif", "Times New Roman"],
   ["Georgia, serif", "Georgia"], ["Verdana, sans-serif", "Verdana"]];
 const SETTING_KEYS = ["school_name", "default_task", "instructions", "notice", "body_font", "body_size",
-  "school_name_size", "title_size", "line_spacing", "theme_colour", "accent_colour", "style_guide", "plan_guide"];
+  "school_name_size", "title_size", "line_spacing", "theme_colour", "accent_colour", "style_guide", "plan_guide", "extra_page"];
 const JSON_HEADERS = { "Content-Type": "application/json" };
 let settings = { school_name: "Your School", default_task: "Written Examination", instructions: DEFAULT_INSTRUCTIONS, notice: PHONES,
   body_font: FONTS[0][0], body_size: 11, school_name_size: 33, title_size: 25, line_spacing: 9,
-  theme_colour: "#8B0000", accent_colour: "#B8860B", style_guide: "", plan_guide: "", pin_set: false, has_logo: false };
+  theme_colour: "#8B0000", accent_colour: "#B8860B", style_guide: "", plan_guide: "", extra_page: false, pin_set: false, has_logo: false };
 let adminPin = window.EXAM_DEMO ? "demo" : "", logoVersion = Date.now();  // the demo has no PIN
 const logoUrl = () => window.demoLogoUrl || `/school-logo?v=${logoVersion}`;
 
@@ -1805,7 +1809,10 @@ async function unlockSchool() {
   }
 }
 function fillSchoolForm() {
-  for (const key of SETTING_KEYS) $(`#st-${key}`).value = settings[key] ?? "";
+  for (const key of SETTING_KEYS) {
+    const el = $(`#st-${key}`);
+    if (el.type === "checkbox") el.checked = !!settings[key]; else el.value = settings[key] ?? "";
+  }
   fillLogoPreview();
 }
 // Logo changes save straight away; they must not reset the rest of the form, which may hold unsaved edits.
@@ -1827,7 +1834,7 @@ async function saveSchool() {
   const changes = {};
   for (const key of SETTING_KEYS) {
     const el = $(`#st-${key}`);
-    changes[key] = el.type === "number" ? Number(el.value) : el.value;
+    changes[key] = el.type === "checkbox" ? el.checked : el.type === "number" ? Number(el.value) : el.value;
   }
   try {
     settings = { ...settings, ...(await adminCall("/api/settings", { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(changes) })) };

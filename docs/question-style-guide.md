@@ -45,10 +45,17 @@ a and b, each with its own marks.
 
 ## Answer space
 
-- Written answers: three lines per mark, and never fewer than three lines. So 1 mark: 3 lines, 2 marks: 6 lines,
-  3 marks: 9 lines, 4 marks: 12 lines. Students' handwriting is bigger than you think.
-- Calculations: a working box of about 2 cm per mark, then an answer box with the units printed in it.
-- Sketches: blank axes with sensible scales, or a box for diagrams.
+Lay answer space out as a VCAA question and answer book does.
+
+- Every written answer, including the working for a calculation, goes on ruled lines (a lines block). Don't use an
+  empty box for writing.
+- Three lines per mark, and never fewer than three lines. So 1 mark: 3 lines, 2 marks: 6 lines, 3 marks: 9 lines,
+  4 marks: 12 lines. Calculations need about four lines per mark. Students' handwriting is bigger than you think.
+- Mathematics (any year, General, Methods and Specialist): lines only. No answer boxes and no working boxes; the
+  student writes the final answer on the last line.
+- Physics and Chemistry calculations: lines for the working, then one answer box with the units printed in it.
+- Sketches and graphs: blank axes (a graph) with sensible scales. Use a box only for a diagram drawn without axes.
+- Put the answer space straight after the part's wording, in the same order under every part.
 - Multiple choice needs no extra space.
 
 ## Multiple choice

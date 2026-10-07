@@ -96,7 +96,7 @@ def print_matches_preview(browser, url: str) -> str | None:
         page.fill("#code", "ABC")
         page.wait_for_selector("#editor-view:not([hidden]) .qhead")
         page.wait_for_timeout(3000)  # maths, pictures and the 250 ms repaginate settle
-        shown = page.locator("#paper .band").count() + 3  # the cover, the pages the preview draws, the extra page
+        shown = page.locator("#paper .band").count() + 2 + page.locator("#paper .sheet.extra").count()  # + cover
         printed = len(re.findall(rb"/Type\s*/Page[^s]", page.pdf(prefer_css_page_size=True)))
         questions = page.locator("#paper .qhead").count()
     finally:
@@ -179,7 +179,7 @@ def main() -> int:
             proc.terminate()
 
     expect = {"questions": 7, "graphs": 7, "curves": 4, "boxplots": 1, "mc_options": 12, "correct_marked": 3,
-              "answer_boxes": 6}
+              "answer_boxes": 0}
     for key, want in expect.items():
         if checks[key] != want:
             failures.append(f"{key}: expected {want}, got {checks[key]}")
