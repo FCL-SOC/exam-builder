@@ -2022,8 +2022,13 @@ function paginate() {
   const mm = box.width / 210, pageH = PAGE_MM * mm, GAP = 22;
   const top0 = box.top + 15 * mm;
   // Sub-parts ride with their part, unless the part is taller than a page: then it breaks between them, as print does.
-  const cands = [...body.querySelectorAll(".sec, .qlist > .item, .qlist > .item > .plist > .item, .plist .plist > .item")]
-    .filter(el => !el.matches(".plist .plist > .item") || el.parentElement.closest(".item").getBoundingClientRect().height > pageH);
+  // Likewise a question or part with no parts of its own that is taller than a page breaks between its blocks (after
+  // the first, which stays with the label).
+  const tall = el => el.getBoundingClientRect().height > pageH;
+  const cands = [...body.querySelectorAll(".sec, .qlist > .item, .qlist > .item > .plist > .item, .plist .plist > .item, " +
+    ".item > .blist > .blk + .blk, .ibody > .blist > .blk + .blk")]
+    .filter(el => el.matches(".blk") ? !el.closest(".item").querySelector(".plist > .item") && tall(el.closest(".item"))
+      : !el.matches(".plist .plist > .item") || tall(el.parentElement.closest(".item")));
   const ys = cands.map(el => el.getBoundingClientRect().top - top0);
   const endY = box.bottom - 15 * mm - top0;
   // Where the content before an element ends. Not the element's own top: the margin between them vanishes at
