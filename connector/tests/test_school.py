@@ -120,7 +120,7 @@ class SchoolModeTests(unittest.TestCase):
         urllib.request.urlopen(req).close()
         r = self.call("create_exam", exam=copy.deepcopy(SAMPLE))
         self.assertTrue(r["ok"])
-        self.assertEqual(r["editor_link"], f"http://8801-openai-01:7900/#exam={r['exam_id']}")
+        self.assertEqual(r["editor_link"], f"http://8801-openai-01:7900/?exam={r['exam_id']}")
         self.assertIn("20 marks, 7 questions", r["outline"])
         saved = self.saved(r["exam_id"])
         self.assertEqual((saved["owner"], saved["updated_by"]), ("ABC", "claude"))
@@ -405,7 +405,7 @@ class LessonPlanTests(unittest.TestCase):
         listed = self.call("list_lesson_plans")["lesson_plans"]
         self.assertEqual((listed[0]["plan_id"], listed[0]["lesson_date"]), (uid, "2026-10-14"))
         r = self.call("get_lesson_plan", plan_id=uid)
-        self.assertEqual(r["editor_link"], f"http://8801-openai-01:7900/plans.html#plan={uid}")
+        self.assertEqual(r["editor_link"], f"http://8801-openai-01:7900/plans.html?plan={uid}")
         self.assertIn("## E: Explain\n(empty)", r["plan"])
 
     def test_edit_replaces_only_the_sections_given(self):

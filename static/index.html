@@ -506,6 +506,9 @@
 <datalist id="subjects"></datalist>
 
 <script>
+// Claude's links say ?exam=…, because some in-app browsers drop everything after a #. Turn it into #exam=… first.
+{ const m = location.search.match(/[?&]exam=([a-z0-9-]+)/);
+  if (m) history.replaceState(null, "", location.pathname + location.search.replace(/([?&])exam=[a-z0-9-]+&?/, "$1").replace(/[?&]$/, "") + "#exam=" + m[1]); }
 // ---------------------------------------------------------------- school rules (one place each)
 const LEARNING_AREAS = ["English", "Health and PE", "Humanities", "Languages", "Mathematics", "Science", "Technologies", "The Arts"];
 const SEED_SUBJECTS = ["Biology", "Business Management", "Chemistry", "EAL", "English", "General Mathematics", "Geography",

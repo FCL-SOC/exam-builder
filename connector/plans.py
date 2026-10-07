@@ -108,7 +108,7 @@ class PlanBook:
         self.editor_url = editor_url.rstrip("/") + "/plans.html"
 
     def link(self, uid: str) -> str:
-        return f"{self.editor_url}#plan={uid}"
+        return f"{self.editor_url}?plan={uid}"  # not #: some in-app browsers drop it
 
     def list(self, owner: str) -> list[dict]:
         return self.server.list(owner, kind="plans")
