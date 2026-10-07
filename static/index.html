@@ -81,6 +81,9 @@
   #claude a.dl { display: inline-block; background: var(--red); color: #fff; text-decoration: none; border-radius: var(--radius); padding: 6px 12px; }
 
   /* ---------- the exam paper (screen preview AND print) ---------- */
+  /* Drawn maths sits inside editable text, where Chrome gives an empty element a line's height so it can take a caret.
+     A square root's bar is an empty element, so it rose off its sign. The drawn maths is never typed into. */
+  .ML__latex { -webkit-user-modify: read-only; }
   .sheet { position: relative; width: 210mm; margin: 0 auto 20px; background: #fff; box-shadow: var(--shadow); padding: 15mm; color: #000;
            font: var(--body-size) var(--body-font); line-height: 1.5; }
   .cover { min-height: 297mm; padding: 12.5mm 25.4mm 5mm; }
@@ -180,6 +183,11 @@
   .al-c > .ans { justify-content: center; }
   .al-r > .ans { justify-content: flex-end; }
   .end { text-align: center; font-weight: 700; margin-top: 8mm; }
+  .end-book { text-align: right; font-weight: 700; margin: 6mm 0 0; }
+  /* What print hides, hidden on screen for a moment while paginate() measures the last page as it prints. */
+  #paper.printlike :is(.ed:empty:not(td), .sec-note:empty, .ctl, .add, .grip, .tip, .img-todo, .hint) { display: none !important; }
+  #paper.printlike :is(.pbreak:not(.end-book), .item.newpage) { margin-top: 0 !important; }
+  #paper.printlike :is(.qlist > .item:last-child, .qlist > .item:last-child :last-child) { margin-bottom: 0; }
   /* A worksheet has no cover: a header on page 1 instead. */
   .ws-head { margin: 0 0 6mm; }
   .ws-top { display: flex; align-items: center; gap: 3mm; font-weight: 700; font-size: 13pt; }
@@ -192,7 +200,7 @@
   /* The questions sheet is split into A4 pages on screen (see paginate()); print breaks at the same places. */
   .pgap { display: block; position: relative; }
   .pgap .band { position: absolute; background: #EFEFEF; box-shadow: inset 0 5px 5px -5px rgba(0,0,0,.3), inset 0 -5px 5px -5px rgba(0,0,0,.3); }
-  .pgap .band span { position: absolute; right: 6mm; top: 3px; font: 10px 'Segoe UI', Arial, sans-serif; color: #999; }
+  .pgap .foot { position: absolute; text-align: center; font: 9pt Arial, sans-serif; color: #000; }  /* as print's footer */
   .ctl, .add, .grip, .hint { display: none; }
   @media screen {
     /* Live document: anything with .ed is edited in place */
@@ -321,7 +329,8 @@
        before it: a marker would let Chrome break again after it and leave a blank page. Margins above it are
        dropped because the preview measures from its top edge, and print keeps a margin after a forced break. */
     .pbreak { break-before: page; }
-    .pbreak, .item.newpage { margin-top: 0 !important; }
+    .pbreak:not(.end-book), .item.newpage { margin-top: 0 !important; }
+    .end-book { margin-top: var(--print-top) !important; }  /* set by paginate(): the bottom of the printed page */
     /* The gap under a section's last question (or under the last thing in it) would spill onto a blank page. */
     .qlist > .item:last-child, .qlist > .item:last-child :last-child { margin-bottom: 0; }
     .pgap .band { display: none; }  /* the grey gap between pages is screen-only */
@@ -1239,7 +1248,8 @@ function renderPaper() {
   </section>`;
 
   const body = `<section class="sheet body">${ws ? wsHead : ""}<div class="seclist"${list(ex.sections, "sections", ".h-sec")}>${sections}</div>
-    ${ed && !ws ? `<button class="add" data-act="add-section">+ Section</button>` : ""}</section>`;
+    ${ed && !ws ? `<button class="add" data-act="add-section">+ Section</button>` : ""}
+    ${ws || settings.extra_page ? "" : `<p class="end-book">END OF QUESTION AND ANSWER BOOK</p>`}</section>`;
 
   // Rebuilding empties the paper for a moment, which can clamp the scroll just as paginate() can.
   const paper = $("#paper"), wrap = $("#paper-wrap"), keepTop = wrap.scrollTop;
@@ -2035,6 +2045,8 @@ function paginate() {
   const paperEl = $("#paper"), wrap = $("#paper-wrap"), keepTop = wrap.scrollTop;
   paperEl.querySelectorAll(".pgap, .dnwa").forEach(g => g.remove());
   paperEl.querySelectorAll(".pbreak").forEach(el => el.classList.remove("pbreak"));
+  const endBook = paperEl.querySelector(".end-book");
+  if (endBook) endBook.style.marginTop = "";
   const body = paperEl.querySelector(".sheet.body");
   if (!body || !body.getClientRects().length) return;  // editor not showing
   const zoom = parseFloat(paperEl.style.zoom) || 1;
@@ -2046,7 +2058,7 @@ function paginate() {
   // the first, which stays with the label).
   const tall = el => el.getBoundingClientRect().height > pageH;
   const cands = [...body.querySelectorAll(".sec, .qlist > .item, .qlist > .item > .plist > .item, .plist .plist > .item, " +
-    ".item > .blist > .blk + .blk, .ibody > .blist > .blk + .blk")]
+    ".item > .blist > .blk + .blk, .ibody > .blist > .blk + .blk, .end-book")]
     .filter(el => el.matches(".blk") ? !el.closest(".item").querySelector(".plist > .item") && tall(el.closest(".item"))
       : !el.matches(".plist .plist > .item") || tall(el.parentElement.closest(".item")));
   const ys = cands.map(el => el.getBoundingClientRect().top - top0);
@@ -2074,19 +2086,43 @@ function paginate() {
     }
   });
   const px = v => `${v / zoom}px`;
+  // "Page X of Y" in the bottom margin of each page, where print puts it. The cover has none.
+  const first = isWorksheet(exam) ? 1 : 2, total = first + breaks.length + (paperEl.querySelector(".sheet.extra") ? 1 : 0);
+  const footer = (gap, room, page) => {
+    const g = gap.getBoundingClientRect(), foot = h("div", { class: "foot" }, `Page ${page} of ${total}`);
+    Object.assign(foot.style, { left: px(box.left - g.left), width: px(box.width), top: px(room + 6 * mm) });
+    gap.append(foot);
+  };
   breaks.forEach((b, n) => {
-    const gap = h("div", { class: "pgap" });
+    const gap = h("div", { class: "pgap" }), room = Math.max(0, b.pageStart + pageH - b.y);
     if (!b.forced) b.el.classList.add("pbreak");
-    gap.style.height = px(Math.max(0, b.pageStart + pageH - b.y) + 31 * mm + GAP);
-    const band = h("div", { class: "band" }, h("span", {}, `Page ${n + (isWorksheet(exam) ? 1 : 2)}`));
+    gap.style.height = px(room + 31 * mm + GAP);
+    const band = h("div", { class: "band" });
     gap.append(band);
     b.el.before(gap);
     const g = gap.getBoundingClientRect();
     Object.assign(band.style, { left: px(box.left - g.left), width: px(box.width), bottom: px(15 * mm), height: px(GAP) });
+    footer(gap, room, n + first);
   });
+  // The end line sits at the bottom right of the last page: push it down by the room left (less a hair, so it
+  // can't spill onto a page of its own).
+  let room = Math.max(0, pageStart + pageH - endY);
+  if (endBook) {
+    const natural = parseFloat(getComputedStyle(endBook).marginTop);
+    // In print the editing buttons are gone, so the last page's content sits higher: measure it that way too.
+    paperEl.classList.add("printlike");
+    const last = breaks.at(-1)?.el;  // where the last page starts; print keeps the end line's own margin there
+    const startTop = !last ? top0 : last.getBoundingClientRect().top - (last === endBook ? natural * zoom : 0);
+    const printRoom = pageH - (endBook.getBoundingClientRect().bottom - startTop);
+    paperEl.classList.remove("printlike");
+    endBook.style.setProperty("--print-top", `${natural + Math.max(0, printRoom - mm) / zoom}px`);
+    endBook.style.marginTop = `${natural + Math.max(0, room - mm) / zoom}px`;
+    room = Math.min(room, mm);
+  }
   const filler = h("div", { class: "pgap" });  // fill out the last page so it looks like a whole sheet
-  filler.style.height = px(Math.max(0, pageStart + pageH - endY));
+  filler.style.height = px(room);
   body.append(filler);
+  footer(filler, room, breaks.length + first);
   wrap.scrollTop = keepTop;
 
   // One "do not write in this area" strip per page. The cover is page 1, so the body starts at page 2:
